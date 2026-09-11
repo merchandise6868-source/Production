@@ -1,0 +1,261 @@
+export interface SizeRun {
+  id: string;
+  name: string;
+  sizes: string[];
+}
+
+export interface Customer {
+  id: string;
+  code: string;
+  name: string;
+  note?: string;
+  sizeRuns: SizeRun[];
+  activeSizeRunId: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  customerId: string;
+  poNumber: string;
+  style: string;
+  orderDate: string; // DD/MM/YYYY
+  targetQty: number;
+  unit: string;
+  note?: string;
+}
+
+export interface MaterialReceipt {
+  id: string;
+  receiptDate: string; // DD/MM/YYYY
+  poId: string;
+  customerId: string;
+  originalName: string; // Anh/Trung
+  vnName: string; // Tiếng Việt
+  size: string;
+  qtyDoc: number; // N_ct
+  qtyActual: number; // N_thực
+  discrepancy: number; // N_ct - N_thực
+  unit: string;
+  isCompensationReceipt?: boolean; // Nhập bù NLGC cho PO (Trường hợp B)
+  voucherCode?: string; // Số phiếu xuất kho / Delivery bill No (VD: PXNVLYEN0926-032)
+  batchId?: string; // Mã nhóm liên kết các size trong cùng 1 lần nhập
+  note?: string;
+}
+
+export interface ProductionDelivery {
+  id: string;
+  deliveryDate: string; // DD/MM/YYYY
+  poId: string;
+  customerId: string;
+  originalName: string;
+  vnName: string;
+  size: string;
+  qtyBatch1: number; // SL xuất đợt 1
+  unit: string;
+  voucherCode?: string;
+  batchId?: string;
+  note?: string;
+}
+
+// 3 Trường hợp bù đặc thù:
+// A: Bù do NLGC bị hỏng trong sản xuất (Lỗi thao tác / Máy móc xưởng -> Tính vào hao hụt vượt định mức)
+// B: Bù do Khách hàng giao thiếu / NLGC ẩn lỗi (Lỗi nguyên liệu -> Báo cáo đề nghị KH cấp bù NLGC mới)
+// C: Sản xuất bù Thành phẩm (Xưởng nhận NLGC cấp bù -> May/gò hoàn thiện TP thiếu -> Giao bù cho đủ hợp đồng)
+export type CompensationCase = 'A' | 'B' | 'C';
+
+export interface CompensationOrder {
+  id: string;
+  voucherCode: string;
+  compCase: CompensationCase; // A, B hoặc C
+  caseLabel: string;
+  requestDate: string; // DD/MM/YYYY
+  completionDate?: string; // DD/MM/YYYY
+  poId: string;
+  customerId: string;
+  originalName: string;
+  vnName: string;
+  size: string;
+  qtyCompensation: number; // SL yêu cầu bù
+  unit: string;
+  reason: string;
+  liability: 'Xưởng chịu (Vượt định mức)' | 'Khách hàng cấp bù';
+  status: 'Chờ xử lý' | 'Đang thực hiện' | 'Đã hoàn tất';
+  note?: string;
+}
+
+export interface InventoryItem {
+  id: string;
+  customerId: string;
+  poId: string;
+  originalName: string;
+  vnName: string;
+  size: string;
+  unit: string;
+  stockActual: number;
+  auditDate: string; // DD/MM/YYYY
+  note?: string;
+}
+
+export interface InventoryMovementRecord {
+  id: string;
+  poNumber: string;
+  style: string;
+  originalName: string;
+  vnName: string;
+  unit: string;
+  size: string;
+  openingStock: number;
+  inboundQty: number; // N_thực
+  outboundBatch1: number;
+  outboundComp: number;
+  totalOutbound: number;
+  closingStock: number;
+  statusText: string;
+}
+
+export interface DashboardReportItem {
+  poId: string;
+  poNumber: string;
+  originalName: string;
+  vnName: string;
+  size: string;
+  qtyDoc: number;
+  qtyActual: number;
+  qtyBatch1: number;
+  qtyComp: number;
+  totalDelivered: number;
+  remainingStock: number;
+  status: 'Chưa hoàn thành đơn gốc' | 'Hoàn thành';
+}
+
+// ============================================================================
+// CÁC DATA MODEL CHUẨN SRS (DỰ ÁN HỆ THỐNG QUẢN LÝ GIAO NHẬN, TỒN KHO & SẢN XUẤT)
+// ============================================================================
+
+// TAB 1: SỐ TRÊN PHIẾU (Khởi tạo đơn hàng - Định danh duy nhất 1 lần)
+export interface PlanOrderRow {
+  id: string;
+  customerId: string;
+  receiptDate: string;     // NGÀY NHẬP
+  poNumber: string;        // MÃ PO
+  itemCode: string;        // MÃ HÀNG (TT CODE)
+  voucherCode: string;     // SỐ PHIẾU KH
+  description: string;     // DIỄN GIẢI
+  unit: string;            // ĐVT (PRS, đôi, bộ...)
+  sizeQuantities: Record<string, number>; // Số lượng kế hoạch từng Size 4 -> 12
+  totalQty: number;        // TỔNG CỘNG tự động tính
+  note?: string;
+  createdAt: string;
+}
+
+// TAB 2: SỐ THỰC NHẬN (Nhập thực tế & Tồn kho ban đầu)
+export interface ActualReceiveRow {
+  id: string;
+  planOrderId: string;     // Liên kết tương ứng dòng định danh ở Tab 1
+  customerId: string;
+  sizeQuantities: Record<string, number>; // Số lượng thực nhận thực tế từng Size
+  totalQty: number;
+  note?: string;
+  updatedAt: string;
+}
+
+// TAB 3: SỐ CHÊNH LỆCH (Tự động tính & Cảnh báo âm)
+export interface DiscrepancyRow {
+  planOrderId: string;
+  customerId: string;
+  receiptDate: string;
+  poNumber: string;
+  itemCode: string;
+  voucherCode: string;
+  description: string;
+  unit: string;
+  planSizes: Record<string, number>;
+  actualSizes: Record<string, number>;
+  diffSizes: Record<string, number>; // Size_i = Actual_i - Plan_i
+  totalPlan: number;
+  totalActual: number;
+  totalDiff: number;
+  hasNegative: boolean;              // Có ít nhất 1 size bị âm (< 0)
+  needsCompensation: boolean;        // Cột BÙ? [x]
+}
+
+// TAB 5: XUẤT CHO SẢN XUẤT (Cấp phát xuống Chuyền)
+export interface ProductionIssueRow {
+  id: string;
+  customerId: string;
+  issueDate: string;
+  poNumber: string;
+  itemCode: string;
+  lineId: string;                    // Dropdown: Chuyền 1, Chuyền 2, Chuyền 3...
+  unit: string;
+  sizeQuantities: Record<string, number>;
+  totalQty: number;
+  note?: string;
+}
+
+// TAB 7: GHI NHẬN SẢN XUẤT XONG (Nghiệm thu & Xử lý Hỏng)
+export interface ProductionReportRow {
+  id: string;
+  customerId: string;
+  reportDate: string;
+  poNumber: string;
+  itemCode: string;
+  lineId: string;
+  unit: string;
+  completedQuantities: Record<string, number>; // Số lượng hoàn thành
+  damagedQuantities: Record<string, number>;   // Số lượng làm hư hỏng
+  compensationFromStock: Record<string, number>; // Lấy tồn kho bù vào (Tab 6 Xuất bù)
+  compensationFromCustomer: Record<string, number>; // Kho hết hàng -> Đẩy sang Tab 4
+  status: 'Đủ hàng' | 'Xuất bù từ kho' | 'Đề nghị KH cấp bù';
+  note?: string;
+}
+
+// TAB 4: IN PHIẾU BÙ (Chứng từ gửi Khách hàng)
+export interface CompensationRequestItem {
+  id: string;
+  customerId: string;
+  source: 'DISCREPANCY_TAB3' | 'DAMAGE_OUT_OF_STOCK_TAB7';
+  sourceLabel: string;               // "Giao thiếu (Tab 3)" | "Hỏng hết kho (Tab 7)"
+  poNumber: string;
+  itemCode: string;
+  voucherCode?: string;
+  lineId?: string;
+  reason: string;
+  sizeQuantities: Record<string, number>; // Số lượng âm / thiếu theo Size
+  totalQty: number;
+  requestDate: string;
+  status: 'Chờ gửi KH' | 'Đã gửi yêu cầu' | 'Đã nhận bù';
+  note?: string;
+}
+
+// TAB 6: TỒN KHO THỜI GIAN THỰC & PHÂN LOẠI XUẤT
+export interface RealtimeStockMovement {
+  id: string;
+  date: string;
+  type: 'NHAP_THUC_TE' | 'XUAT_SAN_XUAT' | 'XUAT_BU_HONG';
+  typeLabel: 'Nhập thực tế (Tab 2)' | 'Xuất sản xuất (Tab 5)' | 'Xuất bù (Tab 7)';
+  poNumber: string;
+  itemCode: string;
+  lineOrVoucher?: string;
+  sizeQuantities: Record<string, number>;
+  totalQty: number;
+  note?: string;
+}
+
+export interface RealtimeStockItem {
+  key: string;                       // poNumber + itemCode
+  customerId: string;
+  poNumber: string;
+  itemCode: string;
+  description: string;
+  unit: string;
+  receivedSizes: Record<string, number>;        // Đường 1: Tab 2 (Thực nhận)
+  productionIssuedSizes: Record<string, number>; // Đường 2: Tab 5 (Xuất sản xuất)
+  damagedCompSizes: Record<string, number>;     // Tab 7 (Xuất bù hư hỏng)
+  currentStockSizes: Record<string, number>;    // = Thực nhận - Xuất SX - Xuất bù
+  totalReceived: number;
+  totalProductionIssued: number;
+  totalDamagedComp: number;
+  totalCurrentStock: number;
+}
+
