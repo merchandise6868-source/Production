@@ -1,0 +1,8 @@
+name = "dd-inventory"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dd-inventory-db"
+database_id = "df68a943-1319-4519-afc7-3fb20e9f4b1e"
