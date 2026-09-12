@@ -6,8 +6,10 @@ import {
   Layers,
   RotateCcw,
 } from 'lucide-react';
+import { useMessageBox } from './common/MessageBox';
 
 export const Sidebar: React.FC = () => {
+  const { confirm, toast } = useMessageBox();
   const {
     customers,
     selectedCustomerId,
@@ -24,13 +26,13 @@ export const Sidebar: React.FC = () => {
   } = useInventory();
 
   const handleReset = () => {
-    if (
-      window.confirm(
-        'Bạn có chắc chắn muốn khôi phục toàn bộ dữ liệu mẫu ban đầu? Các dữ liệu tự nhập sẽ bị xóa.'
-      )
-    ) {
-      resetAllData();
-    }
+    confirm(
+      'Bạn có chắc chắn muốn khôi phục toàn bộ dữ liệu mẫu ban đầu? Các dữ liệu tự nhập sẽ bị xóa.',
+      () => {
+        resetAllData();
+        toast('Đã khôi phục dữ liệu mẫu ban đầu thành công!');
+      }
+    );
   };
 
   return (

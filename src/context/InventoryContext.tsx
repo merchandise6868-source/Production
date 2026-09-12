@@ -16,6 +16,8 @@ import {
   ProductionReportRow,
   CompensationRequestItem,
   RealtimeStockItem,
+  FinishedGoodsDeliveryRow,
+  FinishedGoodsStockItem,
 } from '../types';
 import {
   INITIAL_CUSTOMERS,
@@ -113,9 +115,32 @@ interface InventoryContextType {
   addProductionIssue: (issue: ProductionIssueRow) => void;
   addProductionIssues: (issues: ProductionIssueRow[]) => void;
   deleteProductionIssue: (id: string) => void;
+  updateProductionIssue: (issue: ProductionIssueRow) => void;
   addProductionReport: (report: ProductionReportRow) => void;
+  updateProductionReport: (report: ProductionReportRow) => void;
   deleteProductionReport: (id: string) => void;
+  resetActualReceive: (planOrderId: string) => void;
   updateCompensationRequestStatus: (id: string, status: CompensationRequestItem['status']) => void;
+  updateCompensationRequestDate: (id: string, requestDate: string) => void;
+  updateCompensationRequest: (item: CompensationRequestItem) => void;
+  addCompensationRequest: (item: CompensationRequestItem) => void;
+  deleteCompensationRequest: (id: string) => void;
+
+  // PHÂN HỆ THÀNH PHẨM (FINISHED GOODS)
+  finishedGoodsDeliveries: FinishedGoodsDeliveryRow[];
+  currentCustomerFinishedGoodsDeliveries: FinishedGoodsDeliveryRow[];
+  currentCustomerFinishedGoodsStock: FinishedGoodsStockItem[];
+  addFinishedGoodsDelivery: (delivery: FinishedGoodsDeliveryRow) => void;
+  updateFinishedGoodsDelivery: (delivery: FinishedGoodsDeliveryRow) => void;
+  deleteFinishedGoodsDelivery: (id: string) => void;
+
+  // NHẬN VẬT TƯ GIAO BÙ
+  receiveCompensationItem: (
+    item: CompensationRequestItem,
+    receivedQuantities: Record<string, number>,
+    receivedDate?: string
+  ) => void;
+  resetCompensationReceive: (itemId: string) => void;
 
   resetAllData: () => void;
 }
@@ -164,6 +189,24 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [stockCompensations, setStockCompensations] = useState<Record<string, Record<string, number>>>(() =>
     loadStored('stockCompensations', {})
   );
+  const [compensationDateOverrides, setCompensationDateOverrides] = useState<Record<string, string>>(() =>
+    loadStored('compensationDateOverrides', {})
+  );
+  const [hiddenCompensationItemIds, setHiddenCompensationItemIds] = useState<string[]>(() =>
+    loadStored('hiddenCompensationItemIds', [])
+  );
+  const [finishedGoodsDeliveries, setFinishedGoodsDeliveries] = useState<FinishedGoodsDeliveryRow[]>(() =>
+    loadStored('finishedGoodsDeliveries', [])
+  );
+  const [compensationReceivedQuantities, setCompensationReceivedQuantities] = useState<Record<string, Record<string, number>>>(() =>
+    loadStored('compensationReceivedQuantities', {})
+  );
+  const [compensationStatusOverrides, setCompensationStatusOverrides] = useState<Record<string, CompensationRequestItem['status']>>(() =>
+    loadStored('compensationStatusOverrides', {})
+  );
+  const [supplementalMaterialStock, setSupplementalMaterialStock] = useState<Record<string, Record<string, number>>>(() =>
+    loadStored('supplementalMaterialStock', {})
+  );
 
   // Date filters
   const [startDate, setStartDate] = useState<string>('01/09/2026');
@@ -211,6 +254,24 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     localStorage.setItem('dd_inventory_stockCompensations', JSON.stringify(stockCompensations));
   }, [stockCompensations]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_compensationDateOverrides', JSON.stringify(compensationDateOverrides));
+  }, [compensationDateOverrides]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_hiddenCompensationItemIds', JSON.stringify(hiddenCompensationItemIds));
+  }, [hiddenCompensationItemIds]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_finishedGoodsDeliveries', JSON.stringify(finishedGoodsDeliveries));
+  }, [finishedGoodsDeliveries]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_compensationReceivedQuantities', JSON.stringify(compensationReceivedQuantities));
+  }, [compensationReceivedQuantities]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_compensationStatusOverrides', JSON.stringify(compensationStatusOverrides));
+  }, [compensationStatusOverrides]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_supplementalMaterialStock', JSON.stringify(supplementalMaterialStock));
+  }, [supplementalMaterialStock]);
 
   // Helper gửi yêu cầu đồng bộ lên Cloudflare D1
   const syncToApi = async (action: string, payload?: any) => {
@@ -444,6 +505,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setProductionReports(INITIAL_PRODUCTION_REPORTS);
     setCustomCompensationRequests([]);
     setStockCompensations({});
+    setFinishedGoodsDeliveries([]);
+    setCompensationReceivedQuantities({});
+    setCompensationStatusOverrides({});
+    setSupplementalMaterialStock({});
     localStorage.clear();
     syncToApi('RESET_ALL');
   };
@@ -617,6 +682,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [productionReports, selectedCustomerId]
   );
 
+  const currentCustomerFinishedGoodsDeliveries = useMemo(
+    () => finishedGoodsDeliveries.filter((d) => d.customerId === selectedCustomerId),
+    [finishedGoodsDeliveries, selectedCustomerId]
+  );
+
   // TAB 3: TỰ ĐỘNG TÍNH CHÊNH LỆCH = SỐ THỰC NHẬN (TAB 2) - SỐ TRÊN PHIẾU (TAB 1)
   const currentCustomerDiscrepancies: DiscrepancyRow[] = useMemo(() => {
     return currentCustomerPlanOrders.map((plan) => {
@@ -730,9 +800,68 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     });
 
+    // Nguồn 3: Hàng hư hỏng phát sinh trong sản xuất (Tab 7)
+    currentCustomerProductionReports.forEach((rep) => {
+      const damaged = rep.damagedQuantities || {};
+      const damagedSizes: Record<string, number> = {};
+      let totalDamaged = 0;
+      Object.entries(damaged).forEach(([s, q]) => {
+        if (Number(q) > 0) {
+          damagedSizes[s] = Number(q);
+          totalDamaged += Number(q);
+        }
+      });
+
+      const fromCust = rep.compensationFromCustomer || {};
+      const hasFromCust = Object.values(fromCust).some((v) => Number(v) > 0);
+
+      // Nếu có hư hỏng và chưa bị gom vào phiếu 'Hỏng hết kho'
+      if (totalDamaged > 0 && !hasFromCust) {
+        items.push({
+          id: `comp-damage-${rep.id}`,
+          customerId: rep.customerId,
+          source: 'DAMAGED_GOODS',
+          sourceLabel: 'Hàng hư hỏng',
+          poNumber: rep.poNumber,
+          itemCode: rep.itemCode,
+          lineId: rep.lineId,
+          reason: `Hàng hư hỏng trong quá trình sản xuất tại ${rep.lineId}`,
+          sizeQuantities: damagedSizes,
+          totalQty: totalDamaged,
+          requestDate: rep.reportDate,
+          status: 'Chờ gửi KH',
+        });
+      }
+    });
+
     const customItems = customCompensationRequests.filter((c) => c.customerId === selectedCustomerId);
-    return [...items, ...customItems];
-  }, [currentCustomerDiscrepancies, currentCustomerProductionReports, customCompensationRequests, selectedCustomerId]);
+    const all = [...items, ...customItems];
+    return all
+      .filter((item) => !hiddenCompensationItemIds.includes(item.id))
+      .map((item) => {
+        const receivedQuantities = compensationReceivedQuantities[item.id] || {};
+        const totalReceived = Object.values(receivedQuantities).reduce((s, v) => s + (Number(v) || 0), 0);
+        const isFullyReceived = totalReceived >= item.totalQty && item.totalQty > 0;
+        const currentStatus = compensationStatusOverrides[item.id] || (isFullyReceived ? 'Đã nhận bù' : item.status);
+
+        return {
+          ...item,
+          requestDate: compensationDateOverrides[item.id] || item.requestDate,
+          status: currentStatus,
+          receivedQuantities,
+          isFullyReceived,
+        };
+      });
+  }, [
+    currentCustomerDiscrepancies,
+    currentCustomerProductionReports,
+    customCompensationRequests,
+    selectedCustomerId,
+    hiddenCompensationItemIds,
+    compensationDateOverrides,
+    compensationReceivedQuantities,
+    compensationStatusOverrides,
+  ]);
 
   // TAB 6: TỒN KHO THỜI GIAN THỰC = THỰC NHẬN (TAB 2) - XUẤT SX (TAB 5) - XUẤT BÙ (TAB 7)
   const currentCustomerRealtimeStock: RealtimeStockItem[] = useMemo(() => {
@@ -830,6 +959,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     });
 
+    // Ghi nhận vật tư bổ sung bù từ khách hàng vào tồn kho
+    Object.entries(supplementalMaterialStock).forEach(([key, sizeMap]) => {
+      if (groups[key]) {
+        Object.entries(sizeMap).forEach(([s, q]) => {
+          groups[key].received[s] = (groups[key].received[s] || 0) + (Number(q) || 0);
+        });
+      }
+    });
+
     return Object.entries(groups).map(([key, g]) => {
       const allSizes = Array.from(
         new Set([
@@ -881,8 +1019,91 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     currentCustomerProductionIssues,
     currentCustomerProductionReports,
     stockCompensations,
+    supplementalMaterialStock,
     selectedCustomerId,
   ]);
+
+  // TAB 8: TỒN KHO THÀNH PHẨM (Tự động đọc từ Báo Cáo Nghiệm Thu Tab 7)
+  const currentCustomerFinishedGoodsStock: FinishedGoodsStockItem[] = useMemo(() => {
+    const groups: Record<
+      string,
+      {
+        poNumber: string;
+        itemCode: string;
+        unit: string;
+        inbound: Record<string, number>;
+        delivered: Record<string, number>;
+      }
+    > = {};
+
+    // 1. Tự động đọc dữ liệu nhập kho từ Tab 7 (completedQuantities của các chuyền 1, 2, 3...)
+    currentCustomerProductionReports.forEach((rep) => {
+      const key = `${rep.poNumber.trim().toUpperCase()}__${rep.itemCode.trim().toUpperCase()}`;
+      if (!groups[key]) {
+        groups[key] = {
+          poNumber: rep.poNumber,
+          itemCode: rep.itemCode,
+          unit: rep.unit || 'PRS',
+          inbound: {},
+          delivered: {},
+        };
+      }
+      Object.entries(rep.completedQuantities || {}).forEach(([s, q]) => {
+        const num = Number(q) || 0;
+        groups[key].inbound[s] = (groups[key].inbound[s] || 0) + num;
+      });
+    });
+
+    // 2. Trừ sản lượng đã xuất giao thành phẩm cho khách hàng
+    currentCustomerFinishedGoodsDeliveries.forEach((del) => {
+      const key = `${del.poNumber.trim().toUpperCase()}__${del.itemCode.trim().toUpperCase()}`;
+      if (!groups[key]) {
+        groups[key] = {
+          poNumber: del.poNumber,
+          itemCode: del.itemCode,
+          unit: del.unit || 'PRS',
+          inbound: {},
+          delivered: {},
+        };
+      }
+      Object.entries(del.sizeQuantities || {}).forEach(([s, q]) => {
+        const num = Number(q) || 0;
+        groups[key].delivered[s] = (groups[key].delivered[s] || 0) + num;
+      });
+    });
+
+    return Object.entries(groups).map(([key, g]) => {
+      const allSizes = Array.from(new Set([...Object.keys(g.inbound), ...Object.keys(g.delivered)]));
+      const stockSizes: Record<string, number> = {};
+      let totalInbound = 0;
+      let totalDelivered = 0;
+      let totalStock = 0;
+
+      allSizes.forEach((s) => {
+        const inQ = g.inbound[s] || 0;
+        const outQ = g.delivered[s] || 0;
+        const st = inQ - outQ;
+        stockSizes[s] = st;
+        totalInbound += inQ;
+        totalDelivered += outQ;
+        totalStock += st;
+      });
+
+      return {
+        key,
+        customerId: selectedCustomerId,
+        poNumber: g.poNumber,
+        itemCode: g.itemCode,
+        unit: g.unit,
+        inboundSizes: g.inbound,
+        totalInbound,
+        deliveredSizes: g.delivered,
+        totalDelivered,
+        stockSizes,
+        totalStock,
+      };
+    });
+  }, [currentCustomerProductionReports, currentCustomerFinishedGoodsDeliveries, selectedCustomerId]);
 
   // Handlers SRS
   const addPlanOrder = (order: PlanOrderRow) => {
@@ -945,14 +1166,29 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     syncToApi('DELETE_PRODUCTION_ISSUE', { id });
   };
 
+  const updateProductionIssue = (issue: ProductionIssueRow) => {
+    setProductionIssues((prev) => prev.map((i) => (i.id === issue.id ? issue : i)));
+    syncToApi('SAVE_PRODUCTION_ISSUES', [issue]);
+  };
+
   const addProductionReport = (report: ProductionReportRow) => {
     setProductionReports((prev) => [report, ...prev]);
+    syncToApi('SAVE_PRODUCTION_REPORT', report);
+  };
+
+  const updateProductionReport = (report: ProductionReportRow) => {
+    setProductionReports((prev) => prev.map((r) => (r.id === report.id ? report : r)));
     syncToApi('SAVE_PRODUCTION_REPORT', report);
   };
 
   const deleteProductionReport = (id: string) => {
     setProductionReports((prev) => prev.filter((r) => r.id !== id));
     syncToApi('DELETE_PRODUCTION_REPORT', { id });
+  };
+
+  const resetActualReceive = (planOrderId: string) => {
+    setActualReceives((prev) => prev.filter((a) => a.planOrderId !== planOrderId));
+    syncToApi('DELETE_ACTUAL_RECEIVE', { planOrderId });
   };
 
   const updateCompensationRequestStatus = (
@@ -963,6 +1199,40 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       prev.map((c) => (c.id === id ? { ...c, status } : c))
     );
     syncToApi('UPDATE_COMPENSATION_STATUS', { id, status });
+  };
+
+  const updateCompensationRequestDate = (id: string, requestDate: string) => {
+    setCompensationDateOverrides((prev) => ({ ...prev, [id]: requestDate }));
+    setCustomCompensationRequests((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, requestDate } : c))
+    );
+    syncToApi('UPDATE_COMPENSATION_DATE', { id, requestDate });
+  };
+
+  const updateCompensationRequest = (item: CompensationRequestItem) => {
+    setCustomCompensationRequests((prev) => {
+      const exists = prev.some((c) => c.id === item.id);
+      if (exists) {
+        return prev.map((c) => (c.id === item.id ? item : c));
+      } else {
+        return [item, ...prev];
+      }
+    });
+    if (item.requestDate) {
+      setCompensationDateOverrides((prev) => ({ ...prev, [item.id]: item.requestDate }));
+    }
+    syncToApi('SAVE_COMPENSATION_REQUESTS', [item]);
+  };
+
+  const addCompensationRequest = (item: CompensationRequestItem) => {
+    setCustomCompensationRequests((prev) => [item, ...prev]);
+    syncToApi('SAVE_COMPENSATION_REQUESTS', [item]);
+  };
+
+  const deleteCompensationRequest = (id: string) => {
+    setCustomCompensationRequests((prev) => prev.filter((c) => c.id !== id));
+    setHiddenCompensationItemIds((prev) => [...prev, id]);
+    syncToApi('DELETE_COMPENSATION_REQUEST', { id });
   };
 
   const updateStockCompensation = (
@@ -986,6 +1256,121 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       syncToApi('SAVE_STOCK_COMPENSATIONS', updated);
       return updated;
     });
+  };
+
+  // NHẬN VẬT TƯ GIAO BÙ: Ghi nhận số bù theo Size và tự động cập nhật Tab 2 & Tồn kho
+  const receiveCompensationItem = (
+    item: CompensationRequestItem,
+    receivedQuantities: Record<string, number>,
+    receivedDate?: string
+  ) => {
+    const cleanDate = receivedDate || new Date().toLocaleDateString('vi-VN');
+
+    // Lưu lịch sử số lượng nhận bù cho item này
+    setCompensationReceivedQuantities((prev) => ({
+      ...prev,
+      [item.id]: receivedQuantities,
+    }));
+    setCompensationStatusOverrides((prev) => ({
+      ...prev,
+      [item.id]: 'Đã nhận bù',
+    }));
+
+    // Trường hợp 1: Hàng giao thiếu ban đầu (Nguồn Tab 3)
+    // Tự động cộng dồn số lượng nhận bù vào Số Thực Nhận (Tab 2) của đơn hàng đó
+    if (item.source === 'DISCREPANCY_TAB3') {
+      const planOrderId = item.id.startsWith('comp-tab3-')
+        ? item.id.replace('comp-tab3-', '')
+        : currentCustomerPlanOrders.find(
+            (p) =>
+              p.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
+              p.itemCode.toUpperCase() === item.itemCode.toUpperCase()
+          )?.id;
+
+      if (planOrderId) {
+        setActualReceives((prev) => {
+          const existing = prev.find((a) => a.planOrderId === planOrderId);
+          const currentSizes = { ...(existing?.sizeQuantities || {}) };
+
+          // Cộng dồn số lượng nhận bù vào từng size của Tab 2
+          Object.entries(receivedQuantities).forEach(([s, q]) => {
+            currentSizes[s] = (Number(currentSizes[s]) || 0) + (Number(q) || 0);
+          });
+
+          const totalQty = Object.values(currentSizes).reduce((acc, v) => acc + (Number(v) || 0), 0);
+
+          const updatedActual: ActualReceiveRow = {
+            id: existing?.id || `act-${Date.now()}`,
+            planOrderId,
+            customerId: item.customerId,
+            sizeQuantities: currentSizes,
+            totalQty,
+            note: existing?.note
+              ? `${existing.note} (Đã nhận bù đợt 2: ${cleanDate})`
+              : `Nhận bù đợt 2: ${cleanDate}`,
+            updatedAt: cleanDate,
+          };
+
+          const idx = prev.findIndex((a) => a.planOrderId === planOrderId);
+          const next = idx >= 0 ? prev.map((a, i) => (i === idx ? updatedActual : a)) : [updatedActual, ...prev];
+          syncToApi('SAVE_ACTUAL_RECEIVES', [updatedActual]);
+          return next;
+        });
+      }
+    } else {
+      // Trường hợp 2: Hàng hỏng hết kho từ Chuyền (Tab 7 hoặc Hàng hư hỏng)
+      // Tự động nạp vật tư bổ sung vào kho vật tư để Chuyền tiếp tục sản xuất
+      const stockKey = `${item.poNumber.trim().toUpperCase()}__${item.itemCode.trim().toUpperCase()}`;
+      setSupplementalMaterialStock((prev) => {
+        const prevSizes = { ...(prev[stockKey] || {}) };
+        Object.entries(receivedQuantities).forEach(([s, q]) => {
+          prevSizes[s] = (Number(prevSizes[s]) || 0) + (Number(q) || 0);
+        });
+        const updated = {
+          ...prev,
+          [stockKey]: prevSizes,
+        };
+        syncToApi('SAVE_SUPPLEMENTAL_STOCK', updated);
+        return updated;
+      });
+    }
+
+    syncToApi('RECEIVE_COMPENSATION', {
+      itemId: item.id,
+      receivedQuantities,
+      receivedDate: cleanDate,
+    });
+  };
+
+  const resetCompensationReceive = (itemId: string) => {
+    setCompensationReceivedQuantities((prev) => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+    setCompensationStatusOverrides((prev) => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+  };
+
+  // PHÂN HỆ THÀNH PHẨM (FINISHED GOODS) HANDLERS
+  const addFinishedGoodsDelivery = (delivery: FinishedGoodsDeliveryRow) => {
+    setFinishedGoodsDeliveries((prev) => [delivery, ...prev]);
+    syncToApi('SAVE_FINISHED_GOODS_DELIVERY', delivery);
+  };
+
+  const updateFinishedGoodsDelivery = (delivery: FinishedGoodsDeliveryRow) => {
+    setFinishedGoodsDeliveries((prev) =>
+      prev.map((d) => (d.id === delivery.id ? delivery : d))
+    );
+    syncToApi('SAVE_FINISHED_GOODS_DELIVERY', delivery);
+  };
+
+  const deleteFinishedGoodsDelivery = (id: string) => {
+    setFinishedGoodsDeliveries((prev) => prev.filter((d) => d.id !== id));
+    syncToApi('DELETE_FINISHED_GOODS_DELIVERY', { id });
   };
 
   return (
@@ -1058,9 +1443,28 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addProductionIssue,
         addProductionIssues,
         deleteProductionIssue,
+        updateProductionIssue,
         addProductionReport,
+        updateProductionReport,
         deleteProductionReport,
+        resetActualReceive,
         updateCompensationRequestStatus,
+        updateCompensationRequestDate,
+        updateCompensationRequest,
+        addCompensationRequest,
+        deleteCompensationRequest,
+
+        // Finished Goods
+        finishedGoodsDeliveries,
+        currentCustomerFinishedGoodsDeliveries,
+        currentCustomerFinishedGoodsStock,
+        addFinishedGoodsDelivery,
+        updateFinishedGoodsDelivery,
+        deleteFinishedGoodsDelivery,
+
+        // Compensation receiving
+        receiveCompensationItem,
+        resetCompensationReceive,
 
         resetAllData,
       }}

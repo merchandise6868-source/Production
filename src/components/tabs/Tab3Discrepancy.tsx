@@ -210,7 +210,7 @@ export const Tab3Discrepancy: React.FC<Tab3DiscrepancyProps> = ({ onNavigateToTa
                 onClick={onNavigateToTab4}
                 className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow-xs transition"
               >
-                <span>Sang Tab 4 In Phiếu Bù ({negativeRowsCount}) ➔</span>
+                <span>Sang Tab 4 Nhận Bù Vật Tư ({negativeRowsCount}) ➔</span>
               </button>
             )}
           </div>

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { ExcelPasteModal } from '../common/ExcelPasteModal';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
+import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
 
 interface DraftPlanRow {
@@ -33,6 +34,7 @@ interface DraftPlanRow {
 }
 
 export const Tab1PlanOrder: React.FC = () => {
+  const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
@@ -124,9 +126,10 @@ export const Tab1PlanOrder: React.FC = () => {
   };
 
   const handleClearDraftRows = () => {
-    if (window.confirm('Bạn có muốn xóa trắng các dòng đang nhập?')) {
+    confirm('Bạn có muốn xóa trắng các dòng đang nhập?', () => {
       setDraftRows([createEmptyRow(), createEmptyRow()]);
-    }
+      toast('Đã xóa trắng các dòng đang nhập.');
+    });
   };
 
   const getRowTotal = (row: DraftPlanRow): number => {
@@ -160,11 +163,11 @@ export const Tab1PlanOrder: React.FC = () => {
   // Save drafts
   const handleSaveAll = () => {
     if (!currentCustomer) {
-      alert('Chưa chọn Khách Hàng.');
+      alert('Chưa chọn Khách Hàng.', 'Chưa chọn đối tác', 'warning');
       return;
     }
     if (validDraftRows.length === 0) {
-      alert('Vui lòng nhập Mã PO, Mã Hàng (TT Code) và số lượng từng size ít nhất 1 dòng!');
+      alert('Vui lòng nhập Mã PO, Mã Hàng (TT Code) và số lượng từng size ít nhất 1 dòng!', 'Thiếu thông tin đơn hàng', 'warning');
       return;
     }
 
@@ -192,12 +195,12 @@ export const Tab1PlanOrder: React.FC = () => {
     addPlanOrders(newPlanOrders);
     setDraftRows([createEmptyRow(), createEmptyRow()]);
     setActiveSubTab('SAVED');
-    alert(`✅ Đã lưu ${newPlanOrders.length} đơn hàng kế hoạch vào Tab 1! Dữ liệu đã sẵn sàng cho Tab 2.`);
+    toast(`✅ Đã lưu ${newPlanOrders.length} đơn hàng kế hoạch vào Tab 1!`);
   };
 
-  // Keyboard shortcut: Ctrl + Enter
+  // Keyboard shortcut: Enter to save drafts
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       handleSaveAll();
     }
@@ -519,7 +522,11 @@ export const Tab1PlanOrder: React.FC = () => {
                 {draftRows.map((row, idx) => {
                   const rowTotal = getRowTotal(row);
                   return (
-                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                    <tr
+                      key={row.id}
+                      onKeyDown={handleKeyDown}
+                      className="hover:bg-slate-50 transition-colors"
+                    >
                       <td className="p-1 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
                         {idx + 1}
                       </td>
@@ -586,6 +593,12 @@ export const Tab1PlanOrder: React.FC = () => {
                           <option value="chiếc">chiếc</option>
                           <option value="cái">cái</option>
                           <option value="mét">mét</option>
+                          <option value="cuộn">cuộn</option>
+                          <option value="sf">sf</option>
+                          <option value="yard/yds">yard/yds</option>
+                          {!['PRS', 'đôi', 'bộ', 'chiếc', 'cái', 'mét', 'cuộn', 'sf', 'yard/yds'].includes(row.unit) && row.unit && (
+                            <option value={row.unit}>{row.unit}</option>
+                          )}
                         </select>
                       </td>
 
@@ -815,12 +828,13 @@ export const Tab1PlanOrder: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
-                              if (window.confirm(`Bạn có chắc muốn xóa đơn hàng ${order.poNumber} (${order.itemCode})?`)) {
+                              confirm(`Bạn có chắc muốn xóa đơn hàng PO: ${order.poNumber} (${order.itemCode})?`, () => {
                                 deletePlanOrder(order.id);
-                              }
+                                toast(`✅ Đã xóa đơn hàng ${order.poNumber}!`);
+                              });
                             }}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
-                            title="Xóa"
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                            title="Xóa đơn hàng"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -896,7 +910,7 @@ export const Tab1PlanOrder: React.FC = () => {
                 });
                 updatePlanOrder({ ...editingRow, totalQty: sum });
                 setEditingRow(null);
-                alert('Đã cập nhật đơn hàng kế hoạch!');
+                toast('✅ Đã cập nhật đơn hàng kế hoạch!');
               }}
               className="p-5 space-y-4"
             >
@@ -932,8 +946,8 @@ export const Tab1PlanOrder: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1">
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Diễn Giải</label>
                   <input
                     type="text"
@@ -941,6 +955,27 @@ export const Tab1PlanOrder: React.FC = () => {
                     onChange={(e) => setEditingRow({ ...editingRow, description: e.target.value })}
                     className="w-full text-xs border border-slate-300 rounded p-2"
                   />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ĐVT</label>
+                  <select
+                    value={editingRow.unit}
+                    onChange={(e) => setEditingRow({ ...editingRow, unit: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 bg-white"
+                  >
+                    <option value="PRS">PRS</option>
+                    <option value="đôi">đôi</option>
+                    <option value="bộ">bộ</option>
+                    <option value="chiếc">chiếc</option>
+                    <option value="cái">cái</option>
+                    <option value="mét">mét</option>
+                    <option value="cuộn">cuộn</option>
+                    <option value="sf">sf</option>
+                    <option value="yard/yds">yard/yds</option>
+                    {!['PRS', 'đôi', 'bộ', 'chiếc', 'cái', 'mét', 'cuộn', 'sf', 'yard/yds'].includes(editingRow.unit) && editingRow.unit && (
+                      <option value={editingRow.unit}>{editingRow.unit}</option>
+                    )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Ghi Chú</label>

@@ -793,7 +793,13 @@ export const InboundTab: React.FC = () => {
                         <option value="chiếc">chiếc</option>
                         <option value="cái">cái</option>
                         <option value="mét">mét</option>
+                        <option value="cuộn">cuộn</option>
+                        <option value="sf">sf</option>
+                        <option value="yard/yds">yard/yds</option>
                         <option value="kg">kg</option>
+                        {!['PRS', 'đôi', 'bộ', 'chiếc', 'cái', 'mét', 'cuộn', 'sf', 'yard/yds', 'kg'].includes(row.unit) && row.unit && (
+                          <option value={row.unit}>{row.unit}</option>
+                        )}
                       </select>
                     </td>
 

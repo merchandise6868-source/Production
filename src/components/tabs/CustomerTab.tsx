@@ -15,8 +15,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { exportCustomersAndPOsToExcel } from '../../utils/excelExport';
+import { useMessageBox } from '../common/MessageBox';
 
 export const CustomerTab: React.FC = () => {
+  const { alert, confirm, toast } = useMessageBox();
   const {
     customers,
     selectedCustomerId,
@@ -150,21 +152,21 @@ export const CustomerTab: React.FC = () => {
   // Delete Customer
   const handleDeleteCustomer = (cust: Customer) => {
     if (customers.length <= 1) {
-      alert('Hệ thống cần ít nhất 1 khách hàng. Không thể xóa khách hàng duy nhất!');
+      alert('Hệ thống cần ít nhất 1 khách hàng. Không thể xóa khách hàng duy nhất!', 'Không thể xóa', 'warning');
       return;
     }
-    if (
-      window.confirm(
-        `Bạn có chắc chắn muốn XÓA đối tác "${cust.name}"? Dữ liệu dải size và đơn PO của đối tác này sẽ bị xóa.`
-      )
-    ) {
-      deleteCustomer(cust.id);
-      const remaining = customers.filter((c) => c.id !== cust.id);
-      if (remaining.length > 0) {
-        setActiveCustId(remaining[0].id);
-        setSelectedCustomerId(remaining[0].id);
+    confirm(
+      `Bạn có chắc chắn muốn XÓA đối tác "${cust.name}"? Dữ liệu dải size và đơn PO của đối tác này sẽ bị xóa.`,
+      () => {
+        deleteCustomer(cust.id);
+        const remaining = customers.filter((c) => c.id !== cust.id);
+        if (remaining.length > 0) {
+          setActiveCustId(remaining[0].id);
+          setSelectedCustomerId(remaining[0].id);
+        }
+        toast(`Đã xóa đối tác "${cust.name}"!`);
       }
-    }
+    );
   };
 
   // PO Handlers
@@ -454,9 +456,10 @@ export const CustomerTab: React.FC = () => {
                         </button>
                         <button
                           onClick={() => {
-                            if (window.confirm(`Bạn có chắc muốn xóa PO "${po.poNumber}"?`)) {
+                            confirm(`Bạn có chắc muốn xóa PO "${po.poNumber}"?`, () => {
                               deletePurchaseOrder(po.id);
-                            }
+                              toast(`Đã xóa PO "${po.poNumber}"!`);
+                            });
                           }}
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                           title="Xóa PO"

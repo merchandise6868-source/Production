@@ -13,6 +13,7 @@ import {
   Layers,
   Table,
   Filter,
+  Truck,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import * as XLSX from 'xlsx';
@@ -25,6 +26,7 @@ export const Tab8MasterSummary: React.FC = () => {
     currentCustomerActualReceives,
     currentCustomerRealtimeStock,
     currentCustomerProductionIssues,
+    currentCustomerFinishedGoodsStock,
   } = useInventory();
 
   const sizes = useMemo(() => {
@@ -157,6 +159,24 @@ export const Tab8MasterSummary: React.FC = () => {
     };
   }, [summaryRows]);
 
+  // Finished Goods Overall Totals
+  const fgSummary = useMemo(() => {
+    let totalInbound = 0;
+    let totalDelivered = 0;
+    let totalStock = 0;
+    currentCustomerFinishedGoodsStock.forEach((fg) => {
+      totalInbound += fg.totalInbound;
+      totalDelivered += fg.totalDelivered;
+      totalStock += fg.totalStock;
+    });
+    return {
+      totalInbound,
+      totalDelivered,
+      totalStock,
+      skuCount: currentCustomerFinishedGoodsStock.length,
+    };
+  }, [currentCustomerFinishedGoodsStock]);
+
   // Export Excel
   const handleExportExcel = () => {
     if (filteredRows.length === 0) {
@@ -270,7 +290,7 @@ export const Tab8MasterSummary: React.FC = () => {
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
               <BarChart3 className="w-4 h-4 text-sky-600" />
-              <span>TAB 8: BẢNG THỐNG KÊ TỔNG HỢP (PHIẾU - THỰC TẾ - CHÊNH LỆCH - TỒN KHO)</span>
+              <span>TAB 9: BẢNG THỐNG KÊ TỔNG HỢP (PHIẾU - THỰC TẾ - CHÊNH LỆCH - TỒN KHO)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
               | Master Reconciliation &amp; Live Stock Overview
@@ -404,7 +424,7 @@ export const Tab8MasterSummary: React.FC = () => {
           <div className="bg-white p-2.5 rounded-lg border border-emerald-300 shadow-2xs bg-emerald-50/40">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-emerald-950 uppercase tracking-wider">
-                4. TỒN KHO CÒN LẠI
+                4. TỒN VẬT TƯ CÒN LẠI
               </span>
               <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-200 text-emerald-900">
                 Khả dụng
@@ -414,6 +434,39 @@ export const Tab8MasterSummary: React.FC = () => {
               {kpiTotals.totalStock.toLocaleString('vi-VN')}
             </p>
             <span className="text-[10px] text-emerald-700">Sẵn sàng sử dụng</span>
+          </div>
+        </div>
+
+        {/* Finished Goods Summary Bar */}
+        <div className="p-2.5 bg-indigo-50/50 border-b border-indigo-100 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+          <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-md border border-indigo-100 shadow-2xs">
+            <div className="w-7 h-7 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+              <Factory className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-slate-500">TP Nhập Kho Từ Chuyền (Tab 7)</div>
+              <div className="text-sm font-mono font-bold text-indigo-900">{fgSummary.totalInbound.toLocaleString('vi-VN')} đôi</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-md border border-indigo-100 shadow-2xs">
+            <div className="w-7 h-7 rounded-md bg-sky-100 text-sky-700 flex items-center justify-center font-bold">
+              <Truck className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-slate-500">TP Đã Xuất Giao Khách (Tab 8)</div>
+              <div className="text-sm font-mono font-bold text-sky-900">{fgSummary.totalDelivered.toLocaleString('vi-VN')} đôi</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-md border border-emerald-200 shadow-2xs bg-emerald-50/30">
+            <div className="w-7 h-7 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              <PackageCheck className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-emerald-800">Tồn Kho Thành Phẩm Khả Dụng</div>
+              <div className="text-sm font-mono font-bold text-emerald-900">{fgSummary.totalStock.toLocaleString('vi-VN')} đôi</div>
+            </div>
           </div>
         </div>
 

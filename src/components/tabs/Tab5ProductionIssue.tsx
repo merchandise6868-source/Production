@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  Edit,
   Clipboard,
   X,
   Factory,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ExcelPasteModal } from '../common/ExcelPasteModal';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
+import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
 
 interface DraftIssueRow {
@@ -45,6 +47,7 @@ const LINE_OPTIONS = [
 ];
 
 export const Tab5ProductionIssue: React.FC = () => {
+  const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
@@ -52,7 +55,10 @@ export const Tab5ProductionIssue: React.FC = () => {
     currentCustomerProductionIssues,
     addProductionIssues,
     deleteProductionIssue,
+    updateProductionIssue,
   } = useInventory();
+
+  const [editingIssue, setEditingIssue] = useState<ProductionIssueRow | null>(null);
 
   const defaultDate = getCurrentDateFormatted();
   const sizes = useMemo(() => {
@@ -171,7 +177,7 @@ export const Tab5ProductionIssue: React.FC = () => {
   const handleSaveAll = () => {
     if (!currentCustomer) return;
     if (validDraftRows.length === 0) {
-      alert('Vui lòng nhập Mã PO, Mã Hàng và số lượng xuất ít nhất 1 dòng!');
+      alert('Vui lòng nhập Mã PO, Mã Hàng và số lượng xuất ít nhất 1 dòng!', 'Thiếu thông tin', 'warning');
       return;
     }
 
@@ -197,14 +203,54 @@ export const Tab5ProductionIssue: React.FC = () => {
     addProductionIssues(newIssues);
     setDraftRows([createEmptyRow(), createEmptyRow()]);
     setActiveSubTab('SAVED');
-    alert(`✅ Đã lưu ${newIssues.length} đợt xuất cấp vật tư xuống Chuyền!\n• Hệ thống đã đẩy số liệu sang Tab 5 (Đường 2) để trừ lùi tồn kho.`);
+    toast(`✅ Đã lưu ${newIssues.length} đợt xuất cấp vật tư xuống Chuyền!`);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       handleSaveAll();
     }
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingIssue) return;
+    if (!editingIssue.poNumber.trim()) {
+      alert('Vui lòng nhập Mã PO.', 'Thiếu thông tin', 'warning');
+      return;
+    }
+    if (!editingIssue.itemCode.trim()) {
+      alert('Vui lòng nhập Mã Hàng.', 'Thiếu thông tin', 'warning');
+      return;
+    }
+
+    const sq: Record<string, number> = {};
+    let sum = 0;
+    sizes.forEach((s) => {
+      const v = Number(editingIssue.sizeQuantities[s]) || 0;
+      if (v > 0) {
+        sq[s] = v;
+        sum += v;
+      }
+    });
+
+    if (sum <= 0) {
+      alert('Vui lòng nhập số lượng xuất cho ít nhất 1 size!', 'Thiếu số lượng', 'warning');
+      return;
+    }
+
+    const updated: ProductionIssueRow = {
+      ...editingIssue,
+      poNumber: editingIssue.poNumber.trim().toUpperCase(),
+      itemCode: editingIssue.itemCode.trim().toUpperCase(),
+      sizeQuantities: sq,
+      totalQty: sum,
+    };
+
+    updateProductionIssue(updated);
+    toast(`✅ Đã cập nhật đợt xuất PO: ${updated.poNumber}!`);
+    setEditingIssue(null);
   };
 
   // Filtered saved issues
@@ -455,7 +501,11 @@ export const Tab5ProductionIssue: React.FC = () => {
                 {draftRows.map((row, idx) => {
                   const rowTotal = getRowTotal(row);
                   return (
-                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                    <tr
+                      key={row.id}
+                      onKeyDown={handleKeyDown}
+                      className="hover:bg-slate-50 transition-colors"
+                    >
                       <td className="p-1 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
                         {idx + 1}
                       </td>
@@ -523,7 +573,15 @@ export const Tab5ProductionIssue: React.FC = () => {
                           <option value="PRS">PRS</option>
                           <option value="đôi">đôi</option>
                           <option value="bộ">bộ</option>
+                          <option value="chiếc">chiếc</option>
                           <option value="cái">cái</option>
+                          <option value="mét">mét</option>
+                          <option value="cuộn">cuộn</option>
+                          <option value="sf">sf</option>
+                          <option value="yard/yds">yard/yds</option>
+                          {!['PRS', 'đôi', 'bộ', 'chiếc', 'cái', 'mét', 'cuộn', 'sf', 'yard/yds'].includes(row.unit) && row.unit && (
+                            <option value={row.unit}>{row.unit}</option>
+                          )}
                         </select>
                       </td>
 
@@ -685,7 +743,7 @@ export const Tab5ProductionIssue: React.FC = () => {
                     TỔNG XUẤT
                   </th>
                   <th className="p-2 border-r border-slate-300 min-w-[110px]">Ghi Chú</th>
-                  <th className="p-2 text-center w-14">Xóa</th>
+                  <th className="p-2 text-center w-16">Thao Tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
@@ -738,18 +796,29 @@ export const Tab5ProductionIssue: React.FC = () => {
                         {issue.note || '-'}
                       </td>
                       <td className="p-2 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`Xóa đợt xuất ${issue.poNumber} cho ${issue.lineId}?`)) {
-                              deleteProductionIssue(issue.id);
-                            }
-                          }}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
-                          title="Xóa"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingIssue({ ...issue, sizeQuantities: { ...issue.sizeQuantities } })}
+                            className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                            title="Chỉnh sửa đợt xuất"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              confirm(`Bạn có chắc muốn xóa đợt xuất PO: ${issue.poNumber} cho ${issue.lineId}?`, () => {
+                                deleteProductionIssue(issue.id);
+                                toast(`✅ Đã xóa đợt xuất ${issue.poNumber}!`);
+                              });
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                            title="Xóa đợt xuất"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -770,6 +839,162 @@ export const Tab5ProductionIssue: React.FC = () => {
         sizes={sizes}
         rows={printRows}
       />
+
+      {/* Edit Issue Modal */}
+      {editingIssue && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-300 w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-800 text-white">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Edit className="w-4 h-4 text-sky-400" />
+                <span>CHỈNH SỬA XUẤT CẤP VẬT TƯ CHO CHUYỀN</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingIssue(null)}
+                className="text-slate-400 hover:text-white p-1 rounded transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="p-5 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Ngày xuất
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingIssue.issueDate}
+                    onChange={(e) => setEditingIssue({ ...editingIssue, issueDate: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Mã PO <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingIssue.poNumber}
+                    onChange={(e) => setEditingIssue({ ...editingIssue, poNumber: e.target.value.toUpperCase() })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Mã hàng (TT Code) <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingIssue.itemCode}
+                    onChange={(e) => setEditingIssue({ ...editingIssue, itemCode: e.target.value.toUpperCase() })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Chuyền / Bộ phận nhận
+                  </label>
+                  <select
+                    value={editingIssue.lineId}
+                    onChange={(e) => setEditingIssue({ ...editingIssue, lineId: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 bg-white focus:ring-1 focus:ring-sky-500 font-semibold text-slate-800"
+                  >
+                    {LINE_OPTIONS.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Đơn vị tính
+                  </label>
+                  <input
+                    type="text"
+                    value={editingIssue.unit}
+                    onChange={(e) => setEditingIssue({ ...editingIssue, unit: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Ghi chú
+                  </label>
+                  <input
+                    type="text"
+                    value={editingIssue.note || ''}
+                    onChange={(e) => setEditingIssue({ ...editingIssue, note: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500"
+                  />
+                </div>
+              </div>
+
+              {/* Sizes */}
+              <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-700 uppercase">
+                    Số lượng xuất theo Size
+                  </span>
+                  <span className="text-xs font-bold text-sky-700 font-mono">
+                    Tổng: {sizes.reduce((sum, s) => sum + (Number(editingIssue.sizeQuantities[s]) || 0), 0)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2">
+                  {sizes.map((s) => (
+                    <div key={s} className="bg-white border border-slate-300 rounded p-1.5 text-center">
+                      <div className="text-[11px] font-bold text-slate-600 mb-1">Sz {s}</div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editingIssue.sizeQuantities[s] ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
+                          setEditingIssue({
+                            ...editingIssue,
+                            sizeQuantities: {
+                              ...editingIssue.sizeQuantities,
+                              [s]: typeof val === 'number' ? val : 0,
+                            },
+                          });
+                        }}
+                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-sky-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingIssue(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                >
+                  HỦY
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded shadow-xs transition cursor-pointer"
+                >
+                  LƯU THAY ĐỔI
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

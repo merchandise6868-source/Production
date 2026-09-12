@@ -10,7 +10,9 @@ import { Tab4CompensationPrint } from './components/tabs/Tab4CompensationPrint';
 import { Tab5ProductionIssue } from './components/tabs/Tab5ProductionIssue';
 import { Tab6RealtimeStock } from './components/tabs/Tab6RealtimeStock';
 import { Tab7ProductionReport } from './components/tabs/Tab7ProductionReport';
+import { Tab8FinishedGoods } from './components/tabs/Tab8FinishedGoods';
 import { Tab8MasterSummary } from './components/tabs/Tab8MasterSummary';
+import { MessageBoxProvider } from './components/common/MessageBox';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -91,7 +93,8 @@ export const AppContent: React.FC = () => {
           {activeTab === 5 && <Tab6RealtimeStock />}
           {activeTab === 6 && <Tab5ProductionIssue />}
           {activeTab === 7 && <Tab7ProductionReport onNavigateToTab4={() => setActiveTab(4)} />}
-          {activeTab === 8 && <Tab8MasterSummary />}
+          {activeTab === 8 && <Tab8FinishedGoods />}
+          {activeTab === 9 && <Tab8MasterSummary />}
         </main>
 
         {/* Chân Trang */}
@@ -113,9 +116,11 @@ export const AppContent: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <ErrorBoundary>
-      <InventoryProvider>
-        <AppContent />
-      </InventoryProvider>
+      <MessageBoxProvider>
+        <InventoryProvider>
+          <AppContent />
+        </InventoryProvider>
+      </MessageBoxProvider>
     </ErrorBoundary>
   );
 };

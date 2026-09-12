@@ -12,18 +12,23 @@ import {
   CheckCircle2,
   AlertTriangle,
   Copy,
+  Edit,
+  Trash2,
 } from 'lucide-react';
 import { ExcelPasteModal } from '../common/ExcelPasteModal';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
+import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
 
 export const Tab2ActualReceive: React.FC = () => {
+  const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
     currentCustomerPlanOrders,
     currentCustomerActualReceives,
     saveActualReceives,
+    resetActualReceive,
   } = useInventory();
 
   const sizes = useMemo(() => {
@@ -107,13 +112,14 @@ export const Tab2ActualReceive: React.FC = () => {
         [planId]: { ...plan.sizeQuantities },
       }));
     } else {
-      if (window.confirm('Sao chép toàn bộ số lượng từ phiếu sang thực nhận?')) {
+      confirm('Sao chép toàn bộ số lượng từ phiếu sang thực nhận?', () => {
         const next: Record<string, Record<string, number | ''>> = {};
         currentCustomerPlanOrders.forEach((p) => {
           next[p.id] = { ...p.sizeQuantities };
         });
         setActualMap(next);
-      }
+        toast('Đã sao chép toàn bộ số lượng từ phiếu sang thực nhận!');
+      });
     }
   };
 
@@ -182,15 +188,32 @@ export const Tab2ActualReceive: React.FC = () => {
     });
 
     saveActualReceives(actualRowsToSave);
-    alert(`✅ Đã lưu ${actualRowsToSave.length} phiếu thực nhận vào hệ thống!\n• Đồng bộ sang Tab 5 làm Tồn Kho Ban Đầu.\n• Chuyển dữ liệu sang Tab 3 để tự động đối soát chênh lệch.`);
+    toast(`✅ Đã lưu ${actualRowsToSave.length} phiếu thực nhận vào hệ thống!`);
   };
 
-  // Keyboard shortcut Ctrl + Enter
+  // Keyboard shortcut: Enter saves all actuals
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       handleSaveAllActuals();
     }
+  };
+
+  const handleResetRow = (planId: string, poNumber: string) => {
+    confirm(`Bạn có chắc muốn xóa/đặt lại số lượng thực nhận của PO ${poNumber} về 0?`, () => {
+      setActualMap((prev) => {
+        const next = { ...prev };
+        delete next[planId];
+        return next;
+      });
+      setNotesMap((prev) => {
+        const next = { ...prev };
+        delete next[planId];
+        return next;
+      });
+      resetActualReceive(planId);
+      toast(`✅ Đã đặt lại số thực nhận PO ${poNumber} về 0`);
+    });
   };
 
   // Excel paste handling with PO matching & Error highlighting
@@ -447,6 +470,7 @@ export const Tab2ActualReceive: React.FC = () => {
                   return (
                     <tr
                       key={plan.id}
+                      onKeyDown={handleKeyDown}
                       className={`hover:bg-slate-50 transition-colors ${
                         isPoError ? 'bg-rose-50/50' : ''
                       }`}
@@ -491,6 +515,7 @@ export const Tab2ActualReceive: React.FC = () => {
                         return (
                           <td key={s} className="p-0 border-r border-slate-200">
                             <input
+                              id={`act-input-${plan.id}-${s}`}
                               type="number"
                               min="0"
                               value={val !== undefined ? val : ''}
@@ -525,16 +550,37 @@ export const Tab2ActualReceive: React.FC = () => {
                         />
                       </td>
 
-                      {/* Quick copy row */}
+                      {/* Actions: Nhận đủ, Sửa, Xóa */}
                       <td className="p-1 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyFromPlan(plan.id)}
-                          className="px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded border border-slate-200 transition"
-                          title="Chép 100% SL từ trên phiếu sang dòng này"
-                        >
-                          Nhận đủ
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyFromPlan(plan.id)}
+                            className="px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded border border-slate-200 transition cursor-pointer"
+                            title="Chép 100% SL từ trên phiếu sang dòng này"
+                          >
+                            Nhận đủ
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById(`act-input-${plan.id}-${sizes[0]}`);
+                              if (el) el.focus();
+                            }}
+                            className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                            title="Chỉnh sửa số lượng thực nhận"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleResetRow(plan.id, plan.poNumber)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                            title="Xóa/Đặt lại số lượng thực nhận về 0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

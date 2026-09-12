@@ -9,6 +9,7 @@ import {
   Warehouse,
   ClipboardCheck,
   BarChart3,
+  Truck,
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 
@@ -26,9 +27,13 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     currentCustomerProductionIssues,
     currentCustomerRealtimeStock,
     currentCustomerProductionReports,
+    currentCustomerFinishedGoodsStock,
   } = useInventory();
 
   const negDiffCount = currentCustomerDiscrepancies.filter((d) => d.hasNegative).length;
+  const pendingCompCount = currentCustomerCompensationItems.filter(
+    (c) => c.status !== 'Đã nhận bù' && !c.isFullyReceived
+  ).length;
 
   const tabs = [
     { id: 0, label: 'Khách Hàng & Dải Size', icon: Users, badge: null },
@@ -53,10 +58,10 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     },
     {
       id: 4,
-      label: 'Tab 4: In Phiếu Bù',
-      icon: Printer,
-      badge: currentCustomerCompensationItems.length > 0 ? `${currentCustomerCompensationItems.length} cần bù` : null,
-      highlight: currentCustomerCompensationItems.length > 0,
+      label: 'Tab 4: Nhận Vật Tư Giao Bù',
+      icon: PackageCheck,
+      badge: pendingCompCount > 0 ? `${pendingCompCount} cần bù` : (currentCustomerCompensationItems.length > 0 ? 'Đã nhận bù' : null),
+      highlight: pendingCompCount > 0,
     },
     {
       id: 5,
@@ -78,7 +83,14 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     },
     {
       id: 8,
-      label: 'Tab 8: Bảng Thống Kê Tổng Hợp',
+      label: 'Tab 8: Kho & Xuất Thành Phẩm',
+      icon: Truck,
+      badge: currentCustomerFinishedGoodsStock.length > 0 ? `${currentCustomerFinishedGoodsStock.length} mã TP` : null,
+      highlight: currentCustomerFinishedGoodsStock.some(s => s.totalStock > 0),
+    },
+    {
+      id: 9,
+      label: 'Tab 9: Bảng Thống Kê Tổng Hợp',
       icon: BarChart3,
       badge: currentCustomerPlanOrders.length > 0 ? `${currentCustomerPlanOrders.length} mã` : null,
       highlight: true,

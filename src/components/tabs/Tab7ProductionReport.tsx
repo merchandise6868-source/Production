@@ -10,6 +10,8 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  Edit,
+  X,
   ClipboardCheck,
   AlertTriangle,
   CheckCircle2,
@@ -18,6 +20,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
+import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
 
 interface DraftReportRow {
@@ -50,6 +53,7 @@ interface Tab7ProductionReportProps {
 }
 
 export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNavigateToTab4 }) => {
+  const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
@@ -58,8 +62,11 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
     currentCustomerProductionReports,
     currentCustomerRealtimeStock,
     addProductionReport,
+    updateProductionReport,
     deleteProductionReport,
   } = useInventory();
+
+  const [editingReport, setEditingReport] = useState<ProductionReportRow | null>(null);
 
   const defaultDate = getCurrentDateFormatted();
   const sizes = useMemo(() => {
@@ -193,7 +200,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
   const handleSaveReport = (row: DraftReportRow) => {
     if (!currentCustomer) return;
     if (!row.poNumber.trim() || !row.itemCode.trim()) {
-      alert('Vui lòng nhập đầy đủ Mã PO và Mã Hàng!');
+      alert('Vui lòng nhập đầy đủ Mã PO và Mã Hàng!', 'Thiếu thông tin', 'warning');
       return;
     }
 
@@ -272,7 +279,71 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
         msg += `• ⚠️ Kho hết tồn cho ${totalFromCustomer} đôi: Đã tự động đẩy dữ liệu sang Tab 4 (In Phiếu Bù) để yêu cầu Khách hàng cấp thêm!\n`;
       }
     }
-    alert(msg);
+    alert(msg, 'Đã Ghi Nhận Nghiệm Thu', 'success');
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingReport) return;
+    if (!editingReport.poNumber.trim() || !editingReport.itemCode.trim()) {
+      alert('Vui lòng nhập đầy đủ Mã PO và Mã Hàng!', 'Thiếu thông tin', 'warning');
+      return;
+    }
+
+    const completedQ: Record<string, number> = {};
+    const damagedQ: Record<string, number> = {};
+    const fromStock: Record<string, number> = {};
+    const fromCustomer: Record<string, number> = {};
+    let totalDamaged = 0;
+    let totalFromStock = 0;
+    let totalFromCustomer = 0;
+
+    sizes.forEach((s) => {
+      const c = Number(editingReport.completedQuantities[s]) || 0;
+      const d = Number(editingReport.damagedQuantities[s]) || 0;
+      completedQ[s] = c;
+      damagedQ[s] = d;
+
+      if (d > 0) {
+        totalDamaged += d;
+        const available = getAvailableStock(editingReport.poNumber, editingReport.itemCode, s);
+        if (available >= d) {
+          fromStock[s] = d;
+          totalFromStock += d;
+        } else if (available > 0) {
+          fromStock[s] = available;
+          totalFromStock += available;
+          const shortage = d - available;
+          fromCustomer[s] = shortage;
+          totalFromCustomer += shortage;
+        } else {
+          fromCustomer[s] = d;
+          totalFromCustomer += d;
+        }
+      }
+    });
+
+    let status: ProductionReportRow['status'] = 'Đủ hàng';
+    if (totalFromCustomer > 0) {
+      status = 'Đề nghị KH cấp bù';
+    } else if (totalFromStock > 0) {
+      status = 'Xuất bù từ kho';
+    }
+
+    const updated: ProductionReportRow = {
+      ...editingReport,
+      poNumber: editingReport.poNumber.trim().toUpperCase(),
+      itemCode: editingReport.itemCode.trim().toUpperCase(),
+      completedQuantities: completedQ,
+      damagedQuantities: damagedQ,
+      compensationFromStock: fromStock,
+      compensationFromCustomer: fromCustomer,
+      status,
+    };
+
+    updateProductionReport(updated);
+    toast(`✅ Đã cập nhật báo cáo nghiệm thu PO ${updated.poNumber}!`);
+    setEditingReport(null);
   };
 
   // Filtered saved reports
@@ -421,6 +492,16 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
               <span>+ Ghi Nhận Đợt Nghiệm Thu Mới</span>
             </button>
           )}
+
+          {onNavigateToTab4 && (
+            <button
+              type="button"
+              onClick={onNavigateToTab4}
+              className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-md border border-rose-200 transition shadow-2xs"
+            >
+              <span>Nhận Bù Vật Tư (Tab 4) ➔</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -457,7 +538,16 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
               const damTotal = getDamagedTotal(row);
 
               return (
-                <div key={row.id} className="space-y-4">
+                <div
+                  key={row.id}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveReport(row);
+                    }
+                  }}
+                  className="space-y-4"
+                >
                   {/* Row Identification */}
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div>
@@ -527,6 +617,14 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                         <option value="đôi">đôi</option>
                         <option value="bộ">bộ</option>
                         <option value="chiếc">chiếc</option>
+                        <option value="cái">cái</option>
+                        <option value="mét">mét</option>
+                        <option value="cuộn">cuộn</option>
+                        <option value="sf">sf</option>
+                        <option value="yard/yds">yard/yds</option>
+                        {!['PRS', 'đôi', 'bộ', 'chiếc', 'cái', 'mét', 'cuộn', 'sf', 'yard/yds'].includes(row.unit) && row.unit && (
+                          <option value={row.unit}>{row.unit}</option>
+                        )}
                       </select>
                     </div>
                   </div>
@@ -750,7 +848,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                   </th>
                   <th className="p-2 border-r border-slate-300 text-center min-w-[125px]">Trạng Thái Xử Lý</th>
                   <th className="p-2 border-r border-slate-300 min-w-[120px]">Ghi Chú</th>
-                  <th className="p-2 text-center w-14">Xóa</th>
+                  <th className="p-2 text-center w-16">Thao Tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
@@ -808,18 +906,35 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                           {rep.note || '-'}
                         </td>
                         <td className="p-2 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm(`Xóa báo cáo của ${rep.lineId} (${rep.poNumber})?`)) {
-                                deleteProductionReport(rep.id);
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingReport({
+                                  ...rep,
+                                  completedQuantities: { ...rep.completedQuantities },
+                                  damagedQuantities: { ...rep.damagedQuantities },
+                                })
                               }
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
-                            title="Xóa"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                              className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                              title="Chỉnh sửa báo cáo"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                confirm(`Bạn có chắc muốn xóa báo cáo nghiệm thu PO ${rep.poNumber} (${rep.itemCode}) tại ${rep.lineId}?`, () => {
+                                  deleteProductionReport(rep.id);
+                                  toast(`✅ Đã xóa báo cáo PO ${rep.poNumber}`);
+                                });
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                              title="Xóa báo cáo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -841,6 +956,186 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
         sizes={sizes}
         rows={printRows}
       />
+
+      {/* Edit Report Modal */}
+      {editingReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-800 text-white">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Edit className="w-4 h-4 text-sky-400" />
+                <span>CHỈNH SỬA BÁO CÁO NGHIỆM THU - PO: {editingReport.poNumber}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingReport(null)}
+                className="text-slate-400 hover:text-white p-1 rounded transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="p-5 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Ngày báo cáo <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingReport.reportDate}
+                    onChange={(e) => setEditingReport({ ...editingReport, reportDate: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Chuyền sản xuất
+                  </label>
+                  <select
+                    value={editingReport.lineId}
+                    onChange={(e) => setEditingReport({ ...editingReport, lineId: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 bg-white focus:ring-1 focus:ring-sky-500 font-semibold text-slate-800"
+                  >
+                    {LINE_OPTIONS.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Mã PO <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingReport.poNumber}
+                    onChange={(e) => setEditingReport({ ...editingReport, poNumber: e.target.value.toUpperCase() })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Mã hàng (TT Code) <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingReport.itemCode}
+                    onChange={(e) => setEditingReport({ ...editingReport, itemCode: e.target.value.toUpperCase() })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Ghi chú
+                  </label>
+                  <input
+                    type="text"
+                    value={editingReport.note || ''}
+                    onChange={(e) => setEditingReport({ ...editingReport, note: e.target.value })}
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500"
+                  />
+                </div>
+              </div>
+
+              {/* SL Đạt Hoàn Thành */}
+              <div className="border border-emerald-200 rounded-lg p-3 bg-emerald-50/40">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-emerald-900 uppercase">
+                    1. Số Lượng Hoàn Thành (SL Đạt)
+                  </span>
+                  <span className="text-xs font-bold text-emerald-800 font-mono">
+                    Tổng: {sizes.reduce((sum, s) => sum + (Number(editingReport.completedQuantities[s]) || 0), 0)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2">
+                  {sizes.map((s) => (
+                    <div key={s} className="bg-white border border-emerald-300 rounded p-1.5 text-center">
+                      <div className="text-[11px] font-bold text-slate-600 mb-1">Sz {s}</div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editingReport.completedQuantities[s] ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
+                          setEditingReport({
+                            ...editingReport,
+                            completedQuantities: {
+                              ...editingReport.completedQuantities,
+                              [s]: typeof val === 'number' ? val : 0,
+                            },
+                          });
+                        }}
+                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-emerald-500 text-emerald-900"
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SL Hư Hỏng */}
+              <div className="border border-rose-200 rounded-lg p-3 bg-rose-50/40">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-rose-900 uppercase">
+                    2. Số Lượng Hư Hỏng (SL Hỏng)
+                  </span>
+                  <span className="text-xs font-bold text-rose-800 font-mono">
+                    Tổng: {sizes.reduce((sum, s) => sum + (Number(editingReport.damagedQuantities[s]) || 0), 0)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2">
+                  {sizes.map((s) => (
+                    <div key={s} className="bg-white border border-rose-300 rounded p-1.5 text-center">
+                      <div className="text-[11px] font-bold text-slate-600 mb-1">Sz {s}</div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editingReport.damagedQuantities[s] ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
+                          setEditingReport({
+                            ...editingReport,
+                            damagedQuantities: {
+                              ...editingReport.damagedQuantities,
+                              [s]: typeof val === 'number' ? val : 0,
+                            },
+                          });
+                        }}
+                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-rose-500 text-rose-900"
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingReport(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                >
+                  HỦY
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded shadow-xs transition cursor-pointer"
+                >
+                  LƯU THAY ĐỔI
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

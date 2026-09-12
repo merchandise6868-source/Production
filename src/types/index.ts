@@ -210,21 +210,24 @@ export interface ProductionReportRow {
   note?: string;
 }
 
-// TAB 4: IN PHIẾU BÙ (Chứng từ gửi Khách hàng)
+// TAB 4: NHẬN VẬT TƯ GIAO BÙ
 export interface CompensationRequestItem {
   id: string;
   customerId: string;
-  source: 'DISCREPANCY_TAB3' | 'DAMAGE_OUT_OF_STOCK_TAB7';
-  sourceLabel: string;               // "Giao thiếu (Tab 3)" | "Hỏng hết kho (Tab 7)"
+  source: 'DISCREPANCY_TAB3' | 'DAMAGE_OUT_OF_STOCK_TAB7' | 'DAMAGED_GOODS';
+  sourceLabel: string;               // "Giao thiếu (Tab 3)" | "Hỏng hết kho (Tab 7)" | "Hàng hư hỏng"
   poNumber: string;
   itemCode: string;
   voucherCode?: string;
   lineId?: string;
   reason: string;
-  sizeQuantities: Record<string, number>; // Số lượng âm / thiếu theo Size
+  sizeQuantities: Record<string, number>; // Số lượng âm / thiếu theo Size cần bù
   totalQty: number;
   requestDate: string;
   status: 'Chờ gửi KH' | 'Đã gửi yêu cầu' | 'Đã nhận bù';
+  receivedQuantities?: Record<string, number>; // Số lượng thực tế đã nhận bù theo Size
+  isFullyReceived?: boolean;
+  receivedDate?: string;
   note?: string;
 }
 
@@ -258,4 +261,40 @@ export interface RealtimeStockItem {
   totalDamagedComp: number;
   totalCurrentStock: number;
 }
+
+// ============================================================================
+// PHÂN HỆ THÀNH PHẨM (FINISHED GOODS): NHẬP KHO - TỒN KHO - XUẤT KHO THÀNH PHẨM
+// ============================================================================
+
+// Phiếu Xuất Kho Thành Phẩm Gửi Khách Hàng
+export interface FinishedGoodsDeliveryRow {
+  id: string;
+  customerId: string;
+  deliveryDate: string;              // Ngày xuất giao (DD/MM/YYYY)
+  poNumber: string;                  // Mã PO
+  itemCode: string;                  // Mã hàng / Model
+  deliveryVoucher: string;           // Số phiếu xuất giao (Delivery Note No)
+  receiver: string;                  // Khách hàng / Người nhận
+  unit: string;                      // ĐVT (đôi, PRS, chiếc...)
+  sizeQuantities: Record<string, number>; // Số lượng xuất từng Size
+  totalQty: number;                  // Tổng số lượng xuất giao
+  note?: string;
+  createdAt: string;
+}
+
+// Bảng Tồn Kho Thành Phẩm (Tự động tính = Nhập kho từ Tab 7 - Đã xuất giao cho khách)
+export interface FinishedGoodsStockItem {
+  key: string;                       // poNumber + itemCode
+  customerId: string;
+  poNumber: string;
+  itemCode: string;
+  unit: string;
+  inboundSizes: Record<string, number>;   // Tự động đọc từ Tab 7 (completedQuantities của các chuyền)
+  totalInbound: number;
+  deliveredSizes: Record<string, number>; // Tự động đọc từ các phiếu xuất kho thành phẩm
+  totalDelivered: number;
+  stockSizes: Record<string, number>;     // Tồn kho hiện tại = Inbound - Delivered
+  totalStock: number;
+}
+
 
