@@ -212,6 +212,62 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.setItem('dd_inventory_stockCompensations', JSON.stringify(stockCompensations));
   }, [stockCompensations]);
 
+  // Helper gửi yêu cầu đồng bộ lên Cloudflare D1
+  const syncToApi = async (action: string, payload?: any) => {
+    try {
+      await fetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, payload }),
+      });
+    } catch (err) {
+      console.warn('D1 sync warning (working in fallback mode):', err);
+    }
+  };
+
+  // Tự động tải dữ liệu từ Cloudflare D1 khi vào web
+  useEffect(() => {
+    fetch('/api/inventory')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !data.success) return;
+
+        // Nếu database mới tạo và hoàn toàn trống, ta nạp dữ liệu khởi tạo mặc định lên D1
+        if (data.isEmpty) {
+          syncToApi('SEED_ALL', {
+            customers: INITIAL_CUSTOMERS,
+            planOrders: INITIAL_PLAN_ORDERS,
+            actualReceives: INITIAL_ACTUAL_RECEIVES,
+            productionIssues: INITIAL_PRODUCTION_ISSUES,
+            productionReports: INITIAL_PRODUCTION_REPORTS,
+            compensationRequests: [],
+            stockCompensations: {},
+            purchaseOrders: INITIAL_POS,
+            receipts: INITIAL_RECEIPTS,
+            deliveries: INITIAL_DELIVERIES,
+            compensations: INITIAL_COMPENSATIONS,
+            inventories: INITIAL_INVENTORIES,
+          });
+          return;
+        }
+
+        // Database đã có dữ liệu -> Cập nhật vào state
+        if (data.customers && data.customers.length > 0) setCustomers(data.customers);
+        if (data.planOrders) setPlanOrders(data.planOrders);
+        if (data.actualReceives) setActualReceives(data.actualReceives);
+        if (data.productionIssues) setProductionIssues(data.productionIssues);
+        if (data.productionReports) setProductionReports(data.productionReports);
+        if (data.compensationRequests) setCustomCompensationRequests(data.compensationRequests);
+        if (data.stockCompensations) setStockCompensations(data.stockCompensations);
+        if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
+        if (data.receipts) setReceipts(data.receipts);
+        if (data.deliveries) setDeliveries(data.deliveries);
+        if (data.compensations) setCompensations(data.compensations);
+        if (data.inventories) setInventories(data.inventories);
+      })
+      .catch((err) => console.log('Using local data (D1 not reachable or offline):', err));
+  }, []);
+
   const currentCustomer = useMemo(
     () => customers.find((c) => c.id === selectedCustomerId) || customers[0],
     [customers, selectedCustomerId]
@@ -238,10 +294,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const addCustomer = (newCustomer: Customer) => {
     setCustomers((prev) => [...prev, newCustomer]);
     setSelectedCustomerId(newCustomer.id);
+    syncToApi('SAVE_CUSTOMER', newCustomer);
   };
 
   const updateCustomer = (updated: Customer) => {
     setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    syncToApi('SAVE_CUSTOMER', updated);
   };
 
   const deleteCustomer = (id: string) => {
@@ -254,12 +312,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const remaining = customers.filter((c) => c.id !== id);
       setSelectedCustomerId(remaining[0]?.id || '');
     }
+    syncToApi('DELETE_CUSTOMER', { id });
   };
 
   const updateCustomerSizeRuns = (customerId: string, sizeRuns: SizeRun[], activeId: string) => {
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, sizeRuns, activeSizeRunId: activeId } : c))
-    );
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, sizeRuns, activeSizeRunId: activeId } : c));
+      const target = updated.find((c) => c.id === customerId);
+      if (target) syncToApi('SAVE_CUSTOMER', target);
+      return updated;
+    });
   };
 
   const deleteSizeRun = (customerId: string, sizeRunId: string) => {
@@ -376,7 +438,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setDeliveries(INITIAL_DELIVERIES);
     setCompensations(INITIAL_COMPENSATIONS);
     setInventories(INITIAL_INVENTORIES);
+    setPlanOrders(INITIAL_PLAN_ORDERS);
+    setActualReceives(INITIAL_ACTUAL_RECEIVES);
+    setProductionIssues(INITIAL_PRODUCTION_ISSUES);
+    setProductionReports(INITIAL_PRODUCTION_REPORTS);
+    setCustomCompensationRequests([]);
+    setStockCompensations({});
     localStorage.clear();
+    syncToApi('RESET_ALL');
   };
 
   // Filtered by Selected Customer
@@ -818,19 +887,23 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Handlers SRS
   const addPlanOrder = (order: PlanOrderRow) => {
     setPlanOrders((prev) => [order, ...prev]);
+    syncToApi('SAVE_PLAN_ORDERS', [order]);
   };
 
   const addPlanOrders = (orders: PlanOrderRow[]) => {
     setPlanOrders((prev) => [...orders, ...prev]);
+    syncToApi('SAVE_PLAN_ORDERS', orders);
   };
 
   const updatePlanOrder = (order: PlanOrderRow) => {
     setPlanOrders((prev) => prev.map((p) => (p.id === order.id ? order : p)));
+    syncToApi('SAVE_PLAN_ORDERS', [order]);
   };
 
   const deletePlanOrder = (id: string) => {
     setPlanOrders((prev) => prev.filter((p) => p.id !== id));
     setActualReceives((prev) => prev.filter((a) => a.planOrderId !== id));
+    syncToApi('DELETE_PLAN_ORDER', { id });
   };
 
   const saveActualReceive = (actual: ActualReceiveRow) => {
@@ -843,6 +916,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       return [actual, ...prev];
     });
+    syncToApi('SAVE_ACTUAL_RECEIVES', [actual]);
   };
 
   const saveActualReceives = (actuals: ActualReceiveRow[]) => {
@@ -853,26 +927,32 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
       return Array.from(map.values());
     });
+    syncToApi('SAVE_ACTUAL_RECEIVES', actuals);
   };
 
   const addProductionIssue = (issue: ProductionIssueRow) => {
     setProductionIssues((prev) => [issue, ...prev]);
+    syncToApi('SAVE_PRODUCTION_ISSUES', [issue]);
   };
 
   const addProductionIssues = (issues: ProductionIssueRow[]) => {
     setProductionIssues((prev) => [...issues, ...prev]);
+    syncToApi('SAVE_PRODUCTION_ISSUES', issues);
   };
 
   const deleteProductionIssue = (id: string) => {
     setProductionIssues((prev) => prev.filter((i) => i.id !== id));
+    syncToApi('DELETE_PRODUCTION_ISSUE', { id });
   };
 
   const addProductionReport = (report: ProductionReportRow) => {
     setProductionReports((prev) => [report, ...prev]);
+    syncToApi('SAVE_PRODUCTION_REPORT', report);
   };
 
   const deleteProductionReport = (id: string) => {
     setProductionReports((prev) => prev.filter((r) => r.id !== id));
+    syncToApi('DELETE_PRODUCTION_REPORT', { id });
   };
 
   const updateCompensationRequestStatus = (
@@ -882,6 +962,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setCustomCompensationRequests((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status } : c))
     );
+    syncToApi('UPDATE_COMPENSATION_STATUS', { id, status });
   };
 
   const updateStockCompensation = (
@@ -898,10 +979,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (num === 0) {
         delete newMap[size];
       }
-      return {
+      const updated = {
         ...prev,
         [key]: newMap,
       };
+      syncToApi('SAVE_STOCK_COMPENSATIONS', updated);
+      return updated;
     });
   };
 

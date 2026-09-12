@@ -1,5 +1,6 @@
-// worker/index.js
+// functions/api/inventory.js
 
+// Khởi tạo bảng app_metadata nếu chưa có (dùng lưu các cấu hình/dữ liệu phụ)
 async function ensureMetadataTable(db) {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS app_metadata (
@@ -9,8 +10,10 @@ async function ensureMetadataTable(db) {
   `).run();
 }
 
-async function handleGetInventory(db) {
+// 1. GET /api/inventory - Đọc toàn bộ dữ liệu từ D1
+export async function onRequestGet(context) {
   try {
+    const db = context.env.DB;
     if (!db) {
       return new Response(JSON.stringify({ error: "DB binding not configured" }), {
         status: 500,
@@ -20,6 +23,7 @@ async function handleGetInventory(db) {
 
     await ensureMetadataTable(db);
 
+    // Lấy dữ liệu từ 6 bảng nghiệp vụ chính
     const [
       customersRes,
       planOrdersRes,
@@ -38,6 +42,7 @@ async function handleGetInventory(db) {
       db.prepare("SELECT * FROM app_metadata").all().catch(() => ({ results: [] })),
     ]);
 
+    // Parse các trường JSON
     const customers = (customersRes.results || []).map(c => ({
       id: c.id,
       code: c.code,
@@ -118,6 +123,7 @@ async function handleGetInventory(db) {
       note: cr.note || ''
     }));
 
+    // Metadata dictionary
     const metadata = {};
     (metadataRes.results || []).forEach(row => {
       try {
@@ -155,8 +161,10 @@ async function handleGetInventory(db) {
   }
 }
 
-async function handlePostInventory(body, db) {
+// 2. POST /api/inventory - Ghi dữ liệu vào D1
+export async function onRequestPost(context) {
   try {
+    const db = context.env.DB;
     if (!db) {
       return new Response(JSON.stringify({ error: "DB binding not configured" }), {
         status: 500,
@@ -165,9 +173,12 @@ async function handlePostInventory(body, db) {
     }
 
     await ensureMetadataTable(db);
+
+    const body = await context.request.json();
     const { action, payload } = body;
 
     switch (action) {
+      // Khởi tạo toàn bộ dữ liệu ban đầu lên D1 (Khi database còn mới trống)
       case 'SEED_ALL': {
         const statements = [];
 
@@ -262,6 +273,7 @@ async function handlePostInventory(body, db) {
           }
         }
 
+        // Lưu metadata
         if (payload.stockCompensations) {
           statements.push(
             db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?, ?)").bind('stockCompensations', JSON.stringify(payload.stockCompensations))
@@ -301,6 +313,7 @@ async function handlePostInventory(body, db) {
         });
       }
 
+      // Lưu 1 hoặc nhiều Kế hoạch (Tab 1)
       case 'SAVE_PLAN_ORDERS': {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(p =>
@@ -322,6 +335,7 @@ async function handlePostInventory(body, db) {
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Lưu Thực nhận (Tab 2)
       case 'SAVE_ACTUAL_RECEIVES': {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(a =>
@@ -337,6 +351,7 @@ async function handlePostInventory(body, db) {
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Lưu Xuất sản xuất (Tab 5)
       case 'SAVE_PRODUCTION_ISSUES': {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(pi =>
@@ -358,6 +373,7 @@ async function handlePostInventory(body, db) {
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Lưu Báo cáo sản xuất (Tab 7)
       case 'SAVE_PRODUCTION_REPORT': {
         const pr = payload;
         await db.prepare(`
@@ -381,16 +397,19 @@ async function handlePostInventory(body, db) {
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Cập nhật trạng thái phiếu bù (Tab 4)
       case 'UPDATE_COMPENSATION_STATUS': {
         await db.prepare("UPDATE compensation_requests SET status = ? WHERE id = ?").bind(payload.status, payload.id).run();
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Cập nhật xuất bù tồn kho (Tab 6)
       case 'SAVE_STOCK_COMPENSATIONS': {
         await db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?, ?)").bind('stockCompensations', JSON.stringify(payload)).run();
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Cập nhật khách hàng
       case 'SAVE_CUSTOMER': {
         const c = payload;
         await db.prepare(`
@@ -405,6 +424,7 @@ async function handlePostInventory(body, db) {
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 
+      // Reset toàn bộ
       case 'RESET_ALL': {
         await db.batch([
           db.prepare("DELETE FROM plan_orders"),
@@ -430,27 +450,3 @@ async function handlePostInventory(body, db) {
     });
   }
 }
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-
-    // API Routes cho D1 database
-    if (url.pathname.startsWith('/api/inventory')) {
-      if (request.method === 'GET') {
-        return handleGetInventory(env.DB);
-      }
-      if (request.method === 'POST') {
-        const body = await request.json();
-        return handlePostInventory(body, env.DB);
-      }
-    }
-
-    // Nếu không phải API -> Phục vụ giao diện tĩnh (HTML/CSS/JS) từ thư mục dist
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
-
-    return new Response("Not Found", { status: 404 });
-  }
-};
