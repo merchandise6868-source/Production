@@ -213,6 +213,143 @@ export const Tab5ProductionIssue: React.FC = () => {
     }
   };
 
+  // Cột ma trận dữ liệu draft rows để xác định vị trí paste chính xác từ ô được click
+  const draftColumns = useMemo(() => [
+    { key: 'issueDate', type: 'date' as const },
+    { key: 'poNumber', type: 'text' as const },
+    { key: 'itemCode', type: 'text' as const },
+    { key: 'lineId', type: 'line' as const },
+    { key: 'unit', type: 'unit' as const },
+    ...sizes.map((s) => ({ key: `size_${s}`, type: 'size' as const, size: s })),
+    { key: 'note', type: 'note' as const },
+  ], [sizes]);
+
+  const handleContainerPaste = (e: React.ClipboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'TEXTAREA') return;
+
+    const targetInput = target.closest('[data-row-idx]') as HTMLElement | null;
+    if (target.tagName === 'INPUT' && !targetInput) {
+      return;
+    }
+
+    const clipText = e.clipboardData.getData('text');
+    if (!clipText) return;
+
+    const rawLines = clipText.split(/\r?\n/);
+    while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '') {
+      rawLines.pop();
+    }
+    if (rawLines.length === 0) return;
+
+    const matrix = rawLines.map((line) => line.split('\t'));
+    const isMultiCell = matrix.length > 1 || matrix[0].length > 1;
+
+    if (!isMultiCell && targetInput && !clipText.includes('\t') && !clipText.includes('\n')) {
+      return;
+    }
+
+    let startRowIdx = 0;
+    let startColIdx = 0;
+
+    if (targetInput) {
+      const rIdxStr = targetInput.getAttribute('data-row-idx');
+      const colKeyStr = targetInput.getAttribute('data-col-key') || '';
+      if (rIdxStr !== null) {
+        startRowIdx = Math.max(0, parseInt(rIdxStr, 10));
+      }
+      const foundColIdx = draftColumns.findIndex((c) => c.key === colKeyStr);
+      if (foundColIdx >= 0) {
+        startColIdx = foundColIdx;
+      }
+    } else {
+      const firstEmptyIdx = draftRows.findIndex(
+        (r) => !r.poNumber.trim() && !r.itemCode.trim() && getRowTotal(r) === 0
+      );
+      startRowIdx = firstEmptyIdx >= 0 ? firstEmptyIdx : draftRows.length;
+      startColIdx = 0;
+    }
+
+    e.preventDefault();
+
+    let dataMatrix = matrix;
+    if (
+      dataMatrix.length > 1 &&
+      dataMatrix[0].some((c) =>
+        /^(ngày(\s*xuất)?|mã\s*po|mã\s*hàng|chuyền|bộ\s*phận|đvt|stt)$/i.test(c.trim().toLowerCase())
+      )
+    ) {
+      dataMatrix = dataMatrix.slice(1);
+    }
+
+    const newDraftRows = draftRows.map((r) => ({
+      ...r,
+      sizeQuantities: { ...r.sizeQuantities },
+    }));
+
+    dataMatrix.forEach((rowCells, rOffset) => {
+      const targetRowIdx = startRowIdx + rOffset;
+
+      while (targetRowIdx >= newDraftRows.length) {
+        newDraftRows.push(createEmptyRow());
+      }
+
+      const rowObj = newDraftRows[targetRowIdx];
+
+      rowCells.forEach((cellRaw, cOffset) => {
+        const targetColIdx = startColIdx + cOffset;
+        if (targetColIdx >= draftColumns.length) return;
+
+        const colDef = draftColumns[targetColIdx];
+        const val = cellRaw.trim();
+
+        if (colDef.type === 'size' && colDef.size) {
+          if (!val || val === '-' || val === '0') {
+            rowObj.sizeQuantities[colDef.size] = '';
+          } else {
+            const num = parseFloat(val.replace(/,/g, ''));
+            rowObj.sizeQuantities[colDef.size] = isNaN(num) ? '' : Math.max(0, num);
+          }
+        } else if (colDef.key === 'issueDate') {
+          if (val) rowObj.issueDate = val;
+        } else if (colDef.key === 'poNumber') {
+          if (val) {
+            rowObj.poNumber = val.toUpperCase();
+            const match = currentCustomerPlanOrders.find(
+              (p) => p.poNumber.toUpperCase() === rowObj.poNumber
+            );
+            if (match) {
+              rowObj.itemCode = match.itemCode;
+              rowObj.unit = match.unit;
+            }
+          }
+        } else if (colDef.key === 'itemCode') {
+          if (val) rowObj.itemCode = val.toUpperCase();
+        } else if (colDef.key === 'lineId') {
+          if (val) rowObj.lineId = val;
+        } else if (colDef.key === 'unit') {
+          if (val) rowObj.unit = val;
+        } else if (colDef.key === 'note') {
+          rowObj.note = val;
+        }
+      });
+    });
+
+    setDraftRows(newDraftRows);
+    const startColName = draftColumns[startColIdx]?.key || '';
+    const friendlyName = startColName.startsWith('size_')
+      ? `Size ${startColName.replace('size_', '')}`
+      : startColName === 'issueDate'
+      ? 'Ngày Xuất'
+      : startColName === 'poNumber'
+      ? 'Mã PO'
+      : startColName === 'itemCode'
+      ? 'Mã Hàng'
+      : startColName;
+
+    toast(`📋 Đã dán thành công ${dataMatrix.length} dòng dữ liệu từ ô [${friendlyName}] dòng ${startRowIdx + 1}!`);
+  };
+
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingIssue) return;
@@ -338,6 +475,7 @@ export const Tab5ProductionIssue: React.FC = () => {
       className="space-y-4"
       ref={gridContainerRef}
       onKeyDown={handleKeyDown}
+      onPaste={handleContainerPaste}
     >
       {/* Sub-tab Navigation */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-lg border border-slate-300 shadow-2xs">
@@ -513,6 +651,8 @@ export const Tab5ProductionIssue: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="issueDate"
                           value={row.issueDate}
                           onChange={(e) => handleUpdateDraftField(row.id, 'issueDate', e.target.value)}
                           placeholder="DD/MM/YYYY"
@@ -524,6 +664,8 @@ export const Tab5ProductionIssue: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="poNumber"
                           list={`po-issue-list-${row.id}`}
                           value={row.poNumber}
                           onChange={(e) => handleUpdateDraftField(row.id, 'poNumber', e.target.value)}
@@ -542,6 +684,8 @@ export const Tab5ProductionIssue: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="itemCode"
                           value={row.itemCode}
                           onChange={(e) => handleUpdateDraftField(row.id, 'itemCode', e.target.value)}
                           placeholder="Mã Hàng"
@@ -552,6 +696,8 @@ export const Tab5ProductionIssue: React.FC = () => {
                       {/* Dropdown Bộ phận nhận (Chuyền) */}
                       <td className="p-0 border-r border-slate-200 bg-sky-50/50">
                         <select
+                          data-row-idx={idx}
+                          data-col-key="lineId"
                           value={row.lineId}
                           onChange={(e) => handleUpdateDraftField(row.id, 'lineId', e.target.value)}
                           className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white"
@@ -566,6 +712,8 @@ export const Tab5ProductionIssue: React.FC = () => {
 
                       <td className="p-0 border-r border-slate-200">
                         <select
+                          data-row-idx={idx}
+                          data-col-key="unit"
                           value={row.unit}
                           onChange={(e) => handleUpdateDraftField(row.id, 'unit', e.target.value)}
                           className="w-full h-8 px-1 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white"
@@ -591,6 +739,8 @@ export const Tab5ProductionIssue: React.FC = () => {
                           <input
                             type="number"
                             min="0"
+                            data-row-idx={idx}
+                            data-col-key={`size_${s}`}
                             value={row.sizeQuantities[s]}
                             onChange={(e) => handleUpdateSizeQty(row.id, s, e.target.value)}
                             placeholder="-"
@@ -608,6 +758,8 @@ export const Tab5ProductionIssue: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="note"
                           value={row.note}
                           onChange={(e) => handleUpdateDraftField(row.id, 'note', e.target.value)}
                           placeholder="Ghi chú xuất..."

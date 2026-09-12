@@ -272,11 +272,75 @@ export const Tab2ActualReceive: React.FC = () => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'TEXTAREA') return;
 
-    const clipText = e.clipboardData.getData('text');
-    if (!clipText || !clipText.includes('\t')) return;
+    // Không can thiệp nếu đang dán vào ô tìm kiếm hoặc ô bên ngoài
+    if (target.tagName === 'INPUT' && !target.hasAttribute('data-size')) {
+      return;
+    }
 
-    e.preventDefault();
-    handleExcelPaste(clipText);
+    const clipText = e.clipboardData.getData('text');
+    if (!clipText) return;
+
+    const rawLines = clipText.split(/\r?\n/);
+    while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '') {
+      rawLines.pop();
+    }
+    if (rawLines.length === 0) return;
+
+    const matrix = rawLines.map((line) => line.split('\t'));
+    const isMultiCell = matrix.length > 1 || matrix[0].length > 1;
+
+    const isSizeCell = target.hasAttribute('data-size');
+
+    // Trường hợp 1: Đang chọn vào 1 ô Size cụ thể -> Dán ma trận số lượng size từ ô đó sang phải và xuống dưới
+    if (isSizeCell) {
+      if (!isMultiCell && !clipText.includes('\t') && !clipText.includes('\n')) {
+        return;
+      }
+
+      e.preventDefault();
+
+      const startPlanIdxStr = target.getAttribute('data-plan-idx');
+      const startPlanIdx = startPlanIdxStr !== null ? parseInt(startPlanIdxStr, 10) : 0;
+      const startSize = target.getAttribute('data-size') || sizes[0];
+      const startSizeIdx = Math.max(0, sizes.indexOf(startSize));
+
+      const updatedMap = { ...actualMap };
+
+      matrix.forEach((rowCells, rOffset) => {
+        const targetPlanIdx = startPlanIdx + rOffset;
+        if (targetPlanIdx >= filteredPlanOrders.length) return;
+
+        const plan = filteredPlanOrders[targetPlanIdx];
+        const currentSq = { ...(updatedMap[plan.id] || {}) };
+
+        rowCells.forEach((cellRaw, cOffset) => {
+          const targetSizeIdx = startSizeIdx + cOffset;
+          if (targetSizeIdx >= sizes.length) return;
+
+          const s = sizes[targetSizeIdx];
+          const val = cellRaw.trim();
+
+          if (!val || val === '-' || val === '0') {
+            currentSq[s] = 0;
+          } else {
+            const num = parseFloat(val.replace(/,/g, ''));
+            currentSq[s] = isNaN(num) ? 0 : Math.max(0, num);
+          }
+        });
+
+        updatedMap[plan.id] = currentSq;
+      });
+
+      setActualMap(updatedMap);
+      toast(`📋 Đã dán thành công ${matrix.length} dòng số lượng thực nhận bắt đầu từ Size ${startSize}!`);
+      return;
+    }
+
+    // Trường hợp 2: Dán bảng đầy đủ có cột Mã PO từ Excel
+    if (clipText.includes('\t')) {
+      e.preventDefault();
+      handleExcelPaste(clipText);
+    }
   };
 
   // Export Excel
@@ -516,6 +580,9 @@ export const Tab2ActualReceive: React.FC = () => {
                           <td key={s} className="p-0 border-r border-slate-200">
                             <input
                               id={`act-input-${plan.id}-${s}`}
+                              data-plan-id={plan.id}
+                              data-plan-idx={idx}
+                              data-size={s}
                               type="number"
                               min="0"
                               value={val !== undefined ? val : ''}

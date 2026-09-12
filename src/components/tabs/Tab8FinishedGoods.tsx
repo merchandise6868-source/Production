@@ -837,6 +837,28 @@ export const Tab8FinishedGoods: React.FC = () => {
                               },
                             }));
                           }}
+                          onPaste={(e) => {
+                            const clip = e.clipboardData.getData('text');
+                            if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
+                            const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
+                            if (parts.length > 1) {
+                              e.preventDefault();
+                              const startIdx = sizes.indexOf(s);
+                              setDraftForm((prev) => {
+                                const nextSq = { ...prev.sizeQuantities };
+                                parts.forEach((p, offset) => {
+                                  const targetIdx = startIdx + offset;
+                                  if (targetIdx < sizes.length) {
+                                    const targetSize = sizes[targetIdx];
+                                    const num = parseInt(p.replace(/,/g, ''), 10);
+                                    nextSq[targetSize] = isNaN(num) ? '' : Math.max(0, num);
+                                  }
+                                });
+                                return { ...prev, sizeQuantities: nextSq };
+                              });
+                              toast(`📋 Đã dán ${parts.length} số lượng size bắt đầu từ Size ${s}!`);
+                            }
+                          }}
                           className={`w-full text-center text-xs font-mono font-bold border rounded py-1.5 focus:outline-none focus:ring-1 ${
                             isOver
                               ? 'border-rose-500 text-rose-700 bg-white focus:ring-rose-500'

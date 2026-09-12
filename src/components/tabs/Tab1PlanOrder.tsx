@@ -254,22 +254,149 @@ export const Tab1PlanOrder: React.FC = () => {
     return parsedRows;
   };
 
+  // Cột ma trận dữ liệu draft rows để xác định vị trí paste chính xác từ ô được click
+  const draftColumns = useMemo(() => [
+    { key: 'receiptDate', type: 'date' as const },
+    { key: 'poNumber', type: 'text' as const },
+    { key: 'itemCode', type: 'text' as const },
+    { key: 'voucherCode', type: 'text' as const },
+    { key: 'description', type: 'text' as const },
+    { key: 'unit', type: 'unit' as const },
+    ...sizes.map((s) => ({ key: `size_${s}`, type: 'size' as const, size: s })),
+    { key: 'note', type: 'note' as const },
+  ], [sizes]);
+
   const handleContainerPaste = (e: React.ClipboardEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'TEXTAREA') return;
 
+    // Nếu đang dán vào ô tìm kiếm hoặc ô bên ngoài bảng nhập thì không can thiệp
+    const targetInput = target.closest('[data-row-idx]') as HTMLElement | null;
+    if (target.tagName === 'INPUT' && !targetInput) {
+      return;
+    }
+
     const clipText = e.clipboardData.getData('text');
-    if (!clipText || !clipText.includes('\t')) return;
+    if (!clipText) return;
+
+    // Tách các dòng dữ liệu từ clipboard
+    const rawLines = clipText.split(/\r?\n/);
+    while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '') {
+      rawLines.pop();
+    }
+    if (rawLines.length === 0) return;
+
+    const matrix = rawLines.map((line) => line.split('\t'));
+    const isMultiCell = matrix.length > 1 || matrix[0].length > 1;
+
+    // Nếu chỉ là 1 ô chữ thuần không tab/newline và đang gõ bình thường thì để trình duyệt dán tự nhiên
+    if (!isMultiCell && targetInput && !clipText.includes('\t') && !clipText.includes('\n')) {
+      return;
+    }
+
+    // Xác định ô bắt đầu paste (dòng và cột)
+    let startRowIdx = 0;
+    let startColIdx = 0;
+
+    if (targetInput) {
+      const rIdxStr = targetInput.getAttribute('data-row-idx');
+      const colKeyStr = targetInput.getAttribute('data-col-key') || '';
+      if (rIdxStr !== null) {
+        startRowIdx = Math.max(0, parseInt(rIdxStr, 10));
+      }
+      const foundColIdx = draftColumns.findIndex((c) => c.key === colKeyStr);
+      if (foundColIdx >= 0) {
+        startColIdx = foundColIdx;
+      }
+    } else {
+      const firstEmptyIdx = draftRows.findIndex(
+        (r) => !r.poNumber.trim() && !r.itemCode.trim() && getRowTotal(r) === 0
+      );
+      startRowIdx = firstEmptyIdx >= 0 ? firstEmptyIdx : draftRows.length;
+      startColIdx = 0;
+    }
 
     e.preventDefault();
-    const rows = parseExcelText(clipText);
-    if (rows.length > 0) {
-      setDraftRows((prev) => {
-        const nonEmpties = prev.filter((r) => r.poNumber.trim() || r.itemCode.trim());
-        return [...nonEmpties, ...rows];
-      });
-      alert(`📋 Đã phân tích và dán thành công ${rows.length} dòng đơn hàng từ Excel!`);
+
+    // Bỏ qua dòng tiêu đề nếu người dùng lỡ copy cả hàng header trong Excel
+    let dataMatrix = matrix;
+    if (
+      dataMatrix.length > 1 &&
+      dataMatrix[0].some((c) =>
+        /^(ngày(\s*nhập)?|mã\s*po|mã\s*hàng|tt\s*code|số\s*phiếu(\s*kh)?|diễn\s*giải|đvt|stt)$/i.test(
+          c.trim().toLowerCase()
+        )
+      )
+    ) {
+      dataMatrix = dataMatrix.slice(1);
     }
+
+    // Nhân bản mảng draftRows hiện tại
+    const newDraftRows = draftRows.map((r) => ({
+      ...r,
+      sizeQuantities: { ...r.sizeQuantities },
+    }));
+
+    dataMatrix.forEach((rowCells, rOffset) => {
+      const targetRowIdx = startRowIdx + rOffset;
+
+      // Tự động thêm dòng mới nếu số dòng dán vượt quá số dòng hiện có
+      while (targetRowIdx >= newDraftRows.length) {
+        newDraftRows.push(createEmptyRow());
+      }
+
+      const rowObj = newDraftRows[targetRowIdx];
+
+      rowCells.forEach((cellRaw, cOffset) => {
+        const targetColIdx = startColIdx + cOffset;
+        if (targetColIdx >= draftColumns.length) return; // Vượt quá số cột của bảng
+
+        const colDef = draftColumns[targetColIdx];
+        const val = cellRaw.trim();
+
+        if (colDef.type === 'size' && colDef.size) {
+          if (!val || val === '-' || val === '0') {
+            rowObj.sizeQuantities[colDef.size] = '';
+          } else {
+            const num = parseFloat(val.replace(/,/g, ''));
+            rowObj.sizeQuantities[colDef.size] = isNaN(num) ? '' : Math.max(0, num);
+          }
+        } else if (colDef.key === 'receiptDate') {
+          if (val) rowObj.receiptDate = val;
+        } else if (colDef.key === 'poNumber') {
+          if (val) rowObj.poNumber = val.toUpperCase();
+        } else if (colDef.key === 'itemCode') {
+          if (val) {
+            rowObj.itemCode = val.toUpperCase();
+            if (!rowObj.description) {
+              rowObj.description = `Vật tư ${rowObj.itemCode}`;
+            }
+          }
+        } else if (colDef.key === 'voucherCode') {
+          rowObj.voucherCode = val;
+        } else if (colDef.key === 'description') {
+          if (val) rowObj.description = val;
+        } else if (colDef.key === 'unit') {
+          if (val) rowObj.unit = val;
+        } else if (colDef.key === 'note') {
+          rowObj.note = val;
+        }
+      });
+    });
+
+    setDraftRows(newDraftRows);
+    const startColName = draftColumns[startColIdx]?.key || '';
+    const friendlyName = startColName.startsWith('size_')
+      ? `Size ${startColName.replace('size_', '')}`
+      : startColName === 'receiptDate'
+      ? 'Ngày Nhập'
+      : startColName === 'poNumber'
+      ? 'Mã PO'
+      : startColName === 'itemCode'
+      ? 'Mã Hàng'
+      : startColName;
+
+    toast(`📋 Đã dán thành công ${dataMatrix.length} dòng dữ liệu từ ô [${friendlyName}] dòng ${startRowIdx + 1}!`);
   };
 
   // Filtered saved orders
@@ -534,6 +661,8 @@ export const Tab1PlanOrder: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="receiptDate"
                           value={row.receiptDate}
                           onChange={(e) => handleUpdateDraftField(row.id, 'receiptDate', e.target.value)}
                           placeholder="DD/MM/YYYY"
@@ -544,6 +673,8 @@ export const Tab1PlanOrder: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="poNumber"
                           value={row.poNumber}
                           onChange={(e) => handleUpdateDraftField(row.id, 'poNumber', e.target.value)}
                           placeholder="MÃ PO"
@@ -554,6 +685,8 @@ export const Tab1PlanOrder: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="itemCode"
                           value={row.itemCode}
                           onChange={(e) => handleUpdateDraftField(row.id, 'itemCode', e.target.value)}
                           placeholder="Mã TT Code"
@@ -564,6 +697,8 @@ export const Tab1PlanOrder: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="voucherCode"
                           value={row.voucherCode}
                           onChange={(e) => handleUpdateDraftField(row.id, 'voucherCode', e.target.value)}
                           placeholder="Số phiếu KH"
@@ -574,6 +709,8 @@ export const Tab1PlanOrder: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="description"
                           value={row.description}
                           onChange={(e) => handleUpdateDraftField(row.id, 'description', e.target.value)}
                           placeholder="Tên diễn giải vật tư..."
@@ -583,6 +720,8 @@ export const Tab1PlanOrder: React.FC = () => {
 
                       <td className="p-0 border-r border-slate-200">
                         <select
+                          data-row-idx={idx}
+                          data-col-key="unit"
                           value={row.unit}
                           onChange={(e) => handleUpdateDraftField(row.id, 'unit', e.target.value)}
                           className="w-full h-8 px-1 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white"
@@ -608,6 +747,8 @@ export const Tab1PlanOrder: React.FC = () => {
                           <input
                             type="number"
                             min="0"
+                            data-row-idx={idx}
+                            data-col-key={`size_${s}`}
                             value={row.sizeQuantities[s]}
                             onChange={(e) => handleUpdateSizeQty(row.id, s, e.target.value)}
                             placeholder="-"
@@ -625,6 +766,8 @@ export const Tab1PlanOrder: React.FC = () => {
                       <td className="p-0 border-r border-slate-200">
                         <input
                           type="text"
+                          data-row-idx={idx}
+                          data-col-key="note"
                           value={row.note}
                           onChange={(e) => handleUpdateDraftField(row.id, 'note', e.target.value)}
                           placeholder="Ghi chú..."
