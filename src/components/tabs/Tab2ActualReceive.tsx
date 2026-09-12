@@ -272,8 +272,8 @@ export const Tab2ActualReceive: React.FC = () => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'TEXTAREA') return;
 
-    // Không can thiệp nếu đang dán vào ô tìm kiếm hoặc ô bên ngoài
-    if (target.tagName === 'INPUT' && !target.hasAttribute('data-size')) {
+    // Không can thiệp nếu đang dán vào ô tìm kiếm hoặc ô bên ngoài bảng
+    if (target.tagName === 'INPUT' && !target.hasAttribute('data-size') && !target.closest('td')?.querySelector('input[data-size]')) {
       return;
     }
 
@@ -289,24 +289,38 @@ export const Tab2ActualReceive: React.FC = () => {
     const matrix = rawLines.map((line) => line.split('\t'));
     const isMultiCell = matrix.length > 1 || matrix[0].length > 1;
 
-    const isSizeCell = target.hasAttribute('data-size');
+    const sizeInput = target.hasAttribute('data-size')
+      ? target
+      : (target.closest('td')?.querySelector('input[data-size]') as HTMLElement | null);
 
     // Trường hợp 1: Đang chọn vào 1 ô Size cụ thể -> Dán ma trận số lượng size từ ô đó sang phải và xuống dưới
-    if (isSizeCell) {
+    if (sizeInput) {
       if (!isMultiCell && !clipText.includes('\t') && !clipText.includes('\n')) {
         return;
       }
 
       e.preventDefault();
 
-      const startPlanIdxStr = target.getAttribute('data-plan-idx');
+      const startPlanIdxStr = sizeInput.getAttribute('data-plan-idx');
       const startPlanIdx = startPlanIdxStr !== null ? parseInt(startPlanIdxStr, 10) : 0;
-      const startSize = target.getAttribute('data-size') || sizes[0];
+      const startSize = sizeInput.getAttribute('data-size') || sizes[0];
       const startSizeIdx = Math.max(0, sizes.indexOf(startSize));
+
+      let dataMatrix = matrix;
+      if (
+        dataMatrix.length > 1 &&
+        dataMatrix[0].some((c) =>
+          /^(size\s*\d+|ngày(\s*nhập)?|mã\s*po|mã\s*hàng|tt\s*code|số\s*phiếu|diễn\s*giải|đvt|stt)$/i.test(
+            c.trim().toLowerCase()
+          )
+        )
+      ) {
+        dataMatrix = dataMatrix.slice(1);
+      }
 
       const updatedMap = { ...actualMap };
 
-      matrix.forEach((rowCells, rOffset) => {
+      dataMatrix.forEach((rowCells, rOffset) => {
         const targetPlanIdx = startPlanIdx + rOffset;
         if (targetPlanIdx >= filteredPlanOrders.length) return;
 
@@ -332,7 +346,7 @@ export const Tab2ActualReceive: React.FC = () => {
       });
 
       setActualMap(updatedMap);
-      toast(`📋 Đã dán thành công ${matrix.length} dòng số lượng thực nhận bắt đầu từ Size ${startSize}!`);
+      toast(`📋 Đã dán thành công ${dataMatrix.length} dòng số lượng thực nhận bắt đầu từ Size ${startSize}!`);
       return;
     }
 

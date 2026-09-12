@@ -20,6 +20,7 @@ import {
   RotateCcw,
   ShieldCheck,
   ArrowRight,
+  Save,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
@@ -76,6 +77,10 @@ export const Tab4CompensationPrint: React.FC = () => {
     confirm(`Xác nhận nhận đủ 100% vật tư giao bù cho PO ${item.poNumber} (${item.itemCode})?
 Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Tab 2) và Kho Vật Tư!`, () => {
       receiveCompensationItem(item, item.sizeQuantities);
+      setLocalReceivedMap((prev) => ({
+        ...prev,
+        [item.id]: { ...item.sizeQuantities },
+      }));
       toast(`✅ Đã nhận đủ bù ${item.totalQty} đôi cho PO ${item.poNumber}. Đã cập nhật vào Thực Nhận (Tab 2) và Kho Vật Tư!`);
     });
   };
@@ -102,6 +107,153 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
     receiveCompensationItem(receivingItem, cleanedSizes, receiveDate);
     toast(`✅ Đã lưu ${total} đôi vật tư nhận bù cho PO ${receivingItem.poNumber}!`);
     setReceivingItem(null);
+  };
+
+  // Local state lưu trữ số lượng nhận bù đang nhập trực tiếp trên bảng
+  const [localReceivedMap, setLocalReceivedMap] = useState<Record<string, Record<string, number | ''>>>({});
+
+  const getLocalReceivedQty = (itemId: string, size: string): number | '' => {
+    if (localReceivedMap[itemId] && localReceivedMap[itemId][size] !== undefined) {
+      return localReceivedMap[itemId][size];
+    }
+    const item = currentCustomerCompensationItems.find((c) => c.id === itemId);
+    const already = item?.receivedQuantities?.[size];
+    return already !== undefined && already > 0 ? already : '';
+  };
+
+  const handleUpdateLocalQty = (itemId: string, size: string, valStr: string) => {
+    const num = valStr === '' ? '' : Math.max(0, parseFloat(valStr) || 0);
+    setLocalReceivedMap((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || {}),
+        [size]: num,
+      },
+    }));
+  };
+
+  const handleSaveAllReceives = () => {
+    let savedCount = 0;
+    filteredItems.forEach((item) => {
+      const itemDraft = localReceivedMap[item.id];
+      if (!itemDraft) return;
+
+      const cleaned: Record<string, number> = {};
+      let hasAny = false;
+      sizes.forEach((s) => {
+        const v = itemDraft[s] !== undefined ? itemDraft[s] : (item.receivedQuantities?.[s] || 0);
+        if (typeof v === 'number' && v > 0) {
+          cleaned[s] = v;
+          hasAny = true;
+        }
+      });
+
+      if (hasAny) {
+        receiveCompensationItem(item, cleaned);
+        savedCount++;
+      }
+    });
+
+    if (savedCount > 0) {
+      toast(`✅ Đã lưu số lượng nhận bù cho ${savedCount} đơn hàng vào Số Thực Nhận (Tab 2) và Kho Vật Tư!`);
+    } else {
+      toast('Đã lưu dữ liệu.');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+      handleSaveAllReceives();
+    }
+  };
+
+  const handleContainerPaste = (e: React.ClipboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'TEXTAREA') return;
+
+    if (
+      target.tagName === 'INPUT' &&
+      !target.hasAttribute('data-size') &&
+      !target.closest('td')?.querySelector('input[data-size]')
+    ) {
+      return;
+    }
+
+    const clipText = e.clipboardData.getData('text');
+    if (!clipText) return;
+
+    const rawLines = clipText.split(/\r?\n/);
+    while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '') {
+      rawLines.pop();
+    }
+    if (rawLines.length === 0) return;
+
+    const matrix = rawLines.map((line) => line.split('\t'));
+    const isMultiCell = matrix.length > 1 || matrix[0].length > 1;
+
+    const sizeInput = target.hasAttribute('data-size')
+      ? target
+      : (target.closest('td')?.querySelector('input[data-size]') as HTMLElement | null);
+
+    // Trường hợp: Đang chọn vào 1 ô Size cụ thể -> Dán ma trận số lượng size từ ô đó sang phải và xuống dưới
+    if (sizeInput) {
+      if (!isMultiCell && !clipText.includes('\t') && !clipText.includes('\n')) {
+        return;
+      }
+
+      e.preventDefault();
+
+      const startCompIdxStr = sizeInput.getAttribute('data-comp-idx');
+      const startCompIdx = startCompIdxStr !== null ? parseInt(startCompIdxStr, 10) : 0;
+      const startSize = sizeInput.getAttribute('data-size') || sizes[0];
+      const startSizeIdx = Math.max(0, sizes.indexOf(startSize));
+
+      let dataMatrix = matrix;
+      if (
+        dataMatrix.length > 1 &&
+        dataMatrix[0].some((c) =>
+          /^(size\s*\d+|ngày(\s*nhập)?|mã\s*po|mã\s*hàng|tt\s*code|số\s*phiếu|diễn\s*giải|đvt|stt)$/i.test(
+            c.trim().toLowerCase()
+          )
+        )
+      ) {
+        dataMatrix = dataMatrix.slice(1);
+      }
+
+      const updatedMap = { ...localReceivedMap };
+
+      dataMatrix.forEach((rowCells, rOffset) => {
+        const targetCompIdx = startCompIdx + rOffset;
+        if (targetCompIdx >= filteredItems.length) return;
+
+        const item = filteredItems[targetCompIdx];
+        const currentSq: Record<string, number | ''> = { ...(updatedMap[item.id] || {}) };
+
+        rowCells.forEach((cellRaw, cOffset) => {
+          const targetSizeIdx = startSizeIdx + cOffset;
+          if (targetSizeIdx >= sizes.length) return;
+
+          const s = sizes[targetSizeIdx];
+          const val = cellRaw.trim();
+
+          if (!val || val === '-' || val === '0') {
+            currentSq[s] = '';
+          } else {
+            const num = parseFloat(val.replace(/,/g, ''));
+            currentSq[s] = isNaN(num) ? '' : Math.max(0, num);
+          }
+        });
+
+        updatedMap[item.id] = currentSq;
+      });
+
+      setLocalReceivedMap(updatedMap);
+      toast(`📋 Đã dán thành công ${dataMatrix.length} dòng số lượng nhận bù bắt đầu từ Size ${startSize}!`);
+      return;
+    }
   };
 
   // New manual compensation form state
@@ -325,7 +477,11 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
   }, [selectedItemForPrint]);
 
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4"
+      onKeyDown={handleKeyDown}
+      onPaste={handleContainerPaste}
+    >
       {/* Top Banner */}
       <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
         <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
@@ -340,6 +496,16 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
           </div>
 
           <div className="flex items-center flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={handleSaveAllReceives}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow-xs transition cursor-pointer"
+              title="Lưu tất cả số lượng nhận bù trên bảng (hoặc nhấn Enter)"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>LƯU NHẬN BÙ (ENTER)</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
@@ -475,7 +641,10 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
               ) : (
                 filteredItems.map((item, idx) => {
                   const recSizes = item.receivedQuantities || {};
-                  const totalRec = Object.values(recSizes).reduce((acc, v) => acc + (Number(v) || 0), 0);
+                  const totalRec = sizes.reduce((sum, s) => {
+                    const v = getLocalReceivedQty(item.id, s);
+                    return sum + (typeof v === 'number' ? v : (Number(recSizes[s]) || 0));
+                  }, 0);
                   const isDone = item.status === 'Đã nhận bù' || item.isFullyReceived || (totalRec >= item.totalQty && item.totalQty > 0);
 
                   return (
@@ -532,35 +701,48 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
                         {item.voucherCode || item.lineId || '-'}
                       </td>
 
-                      <td className="p-2 border-r border-slate-200 text-slate-700 font-medium">
+                      <td className="p-2 border-r border-slate-200 text-slate-700 font-medium truncate max-w-[140px]" title={item.reason}>
                         {item.reason}
                       </td>
 
-                      {/* Missing size quantities */}
+                      {/* Missing size quantities: Editable inputs with Needed badge */}
                       {sizes.map((s) => {
-                        const q = item.sizeQuantities[s] || 0;
-                        const r = recSizes[s] || 0;
+                        const needed = item.sizeQuantities[s] || 0;
+                        const currentVal = getLocalReceivedQty(item.id, s);
+                        const isReceived = typeof currentVal === 'number' && currentVal > 0;
+
                         return (
                           <td
                             key={s}
-                            className={`p-1.5 border-r border-slate-200 text-center font-mono ${
-                              q > 0
-                                ? 'bg-rose-50 text-rose-700 font-bold border-rose-200'
-                                : 'text-slate-300'
+                            className={`p-1 border-r border-slate-200 text-center ${
+                              needed > 0 ? 'bg-rose-50/30' : 'bg-slate-50/20'
                             }`}
                           >
-                            {q > 0 ? (
-                              <div>
-                                <div>{q.toLocaleString('vi-VN')}</div>
-                                {r > 0 && (
-                                  <div className="text-[10px] text-emerald-600 font-semibold" title={`Đã nhận bù: ${r}`}>
-                                    +{r}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              '-'
-                            )}
+                            <div className="flex flex-col items-center gap-0.5 min-w-[46px]">
+                              <span
+                                className={`text-[10px] font-mono leading-tight ${
+                                  needed > 0 ? 'text-rose-600 font-bold' : 'text-slate-300'
+                                }`}
+                                title={`Cần bù: ${needed}`}
+                              >
+                                {needed > 0 ? needed : '-'}
+                              </span>
+                              <input
+                                type="number"
+                                min="0"
+                                data-comp-idx={idx}
+                                data-comp-id={item.id}
+                                data-size={s}
+                                value={currentVal}
+                                placeholder={needed > 0 ? String(needed) : '-'}
+                                onChange={(e) => handleUpdateLocalQty(item.id, s, e.target.value)}
+                                className={`w-full h-7 px-0.5 text-center font-mono font-bold text-xs rounded border transition focus:outline-none focus:ring-1 ${
+                                  isReceived
+                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-400 focus:ring-emerald-500'
+                                    : 'bg-white text-slate-900 border-slate-300 focus:ring-indigo-500'
+                                }`}
+                              />
+                            </div>
                           </td>
                         );
                       })}
@@ -633,6 +815,11 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
                                 onClick={() => {
                                   confirm(`Xác nhận hủy trạng thái nhận bù cho PO ${item.poNumber}?`, () => {
                                     resetCompensationReceive(item.id);
+                                    setLocalReceivedMap((prev) => {
+                                      const next = { ...prev };
+                                      delete next[item.id];
+                                      return next;
+                                    });
                                     toast(`Đã hủy nhận bù cho PO ${item.poNumber}`);
                                   });
                                 }}
@@ -1168,6 +1355,28 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
                             if (e.key === 'Enter') {
                               e.preventDefault();
                               handleSaveReceiveModal();
+                            }
+                          }}
+                          onPaste={(e) => {
+                            const clip = e.clipboardData.getData('text');
+                            if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
+                            const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
+                            if (parts.length > 1) {
+                              e.preventDefault();
+                              const startIdx = sizes.indexOf(s);
+                              setReceiveQuantities((prev) => {
+                                const nextSq = { ...prev };
+                                parts.forEach((p, offset) => {
+                                  const targetIdx = startIdx + offset;
+                                  if (targetIdx < sizes.length) {
+                                    const targetSize = sizes[targetIdx];
+                                    const num = parseInt(p.replace(/,/g, ''), 10);
+                                    nextSq[targetSize] = isNaN(num) ? '' : Math.max(0, num);
+                                  }
+                                });
+                                return nextSq;
+                              });
+                              toast(`📋 Đã dán ${parts.length} số lượng size bắt đầu từ Size ${s}!`);
                             }
                           }}
                           onChange={(e) => {
