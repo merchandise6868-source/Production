@@ -192,8 +192,11 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
 
   // Thêm 1 dòng mới đại diện cho 1 PO mới (tự tăng STT và lặp lại dòng đạt chuẩn & làm hỏng)
   const handleAddNewRow = () => {
-    setReportItems((prev) => [...prev, createBlankItem(prev.length, true)]);
-    toast(`➕ Đã thêm dòng mới cho PO tiếp theo (STT ${reportItems.length + 1})!`);
+    setReportItems((prev) => {
+      const next = [...prev, createBlankItem(prev.length, true)];
+      toast(`➕ Đã thêm dòng mới cho PO tiếp theo (STT ${next.length})!`);
+      return next;
+    });
   };
 
   const handleUpdateItemField = (id: string, field: keyof Tab7ReportItem, value: any) => {
@@ -371,39 +374,100 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
     });
   };
 
-  // Dán từ Excel vào hàng (completed hoặc damaged)
+  // Dán từ Excel vào hàng (completed hoặc damaged) thông minh
   const handleCellPaste = (
     e: React.ClipboardEvent,
-    itemId: string,
+    targetItemIdx: number,
     type: 'completed' | 'damaged',
     startSize: string
   ) => {
     const clip = e.clipboardData.getData('text');
-    if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
+    if (!clip || (!clip.includes('\t') && !clip.includes('\n') && !clip.includes(' '))) return;
 
-    const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
-    if (parts.length > 1) {
-      e.preventDefault();
-      const startIdx = sizes.indexOf(startSize);
-      setReportItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== itemId) return item;
+    const rawLines = clip.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (rawLines.length === 0) return;
+
+    e.preventDefault();
+    const startSizeIdx = sizes.indexOf(startSize);
+
+    setReportItems((prev) => {
+      let currentRows = [...prev];
+
+      if (rawLines.length === 1) {
+        // Chỉ 1 dòng: Dán ngang trên dòng hiện tại (completed hoặc damaged)
+        const parts = rawLines[0].trim().split(/[\t\s]+/).filter(Boolean);
+        if (targetItemIdx < currentRows.length) {
+          const item = { ...currentRows[targetItemIdx] };
           const targetDict = type === 'completed' ? { ...item.completedQuantities } : { ...item.damagedQuantities };
           parts.forEach((p, offset) => {
-            const targetIdx = startIdx + offset;
+            const targetIdx = startSizeIdx + offset;
             if (targetIdx < sizes.length) {
               const sz = sizes[targetIdx];
-              const num = parseInt(p.replace(/,/g, ''), 10);
+              const num = parseFloat(p.replace(/,/g, ''));
               targetDict[sz] = isNaN(num) ? '' : Math.max(0, num);
             }
           });
-          return type === 'completed'
-            ? { ...item, completedQuantities: targetDict }
-            : { ...item, damagedQuantities: targetDict };
-        })
-      );
-      toast(`📋 Đã dán ${parts.length} số lượng từ Size ${startSize}!`);
-    }
+          if (type === 'completed') {
+            item.completedQuantities = targetDict;
+          } else {
+            item.damagedQuantities = targetDict;
+          }
+          currentRows[targetItemIdx] = item;
+        }
+        toast(`📋 Đã dán ${parts.length} số lượng từ Size ${startSize}!`);
+      } else {
+        // Nhiều dòng: Dán theo cặp (Dòng 1: Đạt chuẩn, Dòng 2: Làm hỏng)
+        let rowLineIdx = 0;
+        let poIdx = targetItemIdx;
+
+        while (rowLineIdx < rawLines.length) {
+          if (poIdx >= currentRows.length) {
+            currentRows.push(createBlankItem(currentRows.length, true));
+          }
+
+          const item = { ...currentRows[poIdx], isEditing: true };
+
+          // Dòng đầu: Đạt chuẩn (nếu bắt đầu từ completed)
+          if (rowLineIdx < rawLines.length) {
+            const compParts = rawLines[rowLineIdx].trim().split(/[\t\s]+/).filter(Boolean);
+            const compDict = { ...item.completedQuantities };
+            compParts.forEach((p, offset) => {
+              const targetIdx = startSizeIdx + offset;
+              if (targetIdx < sizes.length) {
+                const sz = sizes[targetIdx];
+                const num = parseFloat(p.replace(/,/g, ''));
+                compDict[sz] = isNaN(num) ? '' : Math.max(0, num);
+              }
+            });
+            item.completedQuantities = compDict;
+            rowLineIdx++;
+          }
+
+          // Dòng tiếp: Làm hỏng (nếu còn dòng)
+          if (rowLineIdx < rawLines.length && type === 'completed') {
+            const damParts = rawLines[rowLineIdx].trim().split(/[\t\s]+/).filter(Boolean);
+            const damDict = { ...item.damagedQuantities };
+            damParts.forEach((p, offset) => {
+              const targetIdx = startSizeIdx + offset;
+              if (targetIdx < sizes.length) {
+                const sz = sizes[targetIdx];
+                const num = parseFloat(p.replace(/,/g, ''));
+                damDict[sz] = isNaN(num) ? '' : Math.max(0, num);
+              }
+            });
+            item.damagedQuantities = damDict;
+            rowLineIdx++;
+          }
+
+          currentRows[poIdx] = item;
+          poIdx++;
+        }
+
+        toast(`📋 Đã dán ${rawLines.length} dòng số lượng từ Excel thành công!`);
+      }
+
+      return currentRows;
+    });
   };
 
   // Lọc theo tìm kiếm
@@ -790,7 +854,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') handleSaveRow(item.id);
                                 }}
-                                onPaste={(e) => handleCellPaste(e, item.id, 'completed', s)}
+                                onPaste={(e) => handleCellPaste(e, idx, 'completed', s)}
                                 placeholder="-"
                                 className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-emerald-950 border border-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                               />
@@ -966,7 +1030,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') handleSaveRow(item.id);
                                 }}
-                                onPaste={(e) => handleCellPaste(e, item.id, 'damaged', s)}
+                                onPaste={(e) => handleCellPaste(e, idx, 'damaged', s)}
                                 placeholder="-"
                                 className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-rose-950 border border-rose-200 focus:outline-none focus:ring-1 focus:ring-rose-500"
                               />

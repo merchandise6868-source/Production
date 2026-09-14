@@ -1116,12 +1116,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Handlers SRS
   const addPlanOrder = (order: PlanOrderRow) => {
-    setPlanOrders((prev) => [order, ...prev]);
+    setPlanOrders((prev) => [...prev, order]);
     syncToApi('SAVE_PLAN_ORDERS', [order]);
   };
 
   const addPlanOrders = (orders: PlanOrderRow[]) => {
-    setPlanOrders((prev) => [...orders, ...prev]);
+    setPlanOrders((prev) => [...prev, ...orders]);
     syncToApi('SAVE_PLAN_ORDERS', orders);
   };
 
@@ -1144,7 +1144,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         next[idx] = actual;
         return next;
       }
-      return [actual, ...prev];
+      return [...prev, actual];
     });
     syncToApi('SAVE_ACTUAL_RECEIVES', [actual]);
   };
@@ -1161,12 +1161,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const addProductionIssue = (issue: ProductionIssueRow) => {
-    setProductionIssues((prev) => [issue, ...prev]);
+    setProductionIssues((prev) => [...prev, issue]);
     syncToApi('SAVE_PRODUCTION_ISSUES', [issue]);
   };
 
   const addProductionIssues = (issues: ProductionIssueRow[]) => {
-    setProductionIssues((prev) => [...issues, ...prev]);
+    setProductionIssues((prev) => [...prev, ...issues]);
     syncToApi('SAVE_PRODUCTION_ISSUES', issues);
   };
 
@@ -1181,7 +1181,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const addProductionReport = (report: ProductionReportRow) => {
-    setProductionReports((prev) => [report, ...prev]);
+    setProductionReports((prev) => [...prev, report]);
     syncToApi('SAVE_PRODUCTION_REPORT', report);
   };
 
@@ -1366,7 +1366,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // PHÂN HỆ THÀNH PHẨM (FINISHED GOODS) HANDLERS
   const addFinishedGoodsDelivery = (delivery: FinishedGoodsDeliveryRow) => {
-    setFinishedGoodsDeliveries((prev) => [delivery, ...prev]);
+    setFinishedGoodsDeliveries((prev) => [...prev, delivery]);
     syncToApi('SAVE_FINISHED_GOODS_DELIVERY', delivery);
   };
 
