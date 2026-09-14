@@ -5,9 +5,7 @@ import { getCurrentDateFormatted } from '../../utils/dateUtils';
 import {
   Printer,
   Download,
-  Plus,
   Save,
-  RotateCcw,
   Search,
   Trash2,
   Edit,
@@ -15,9 +13,6 @@ import {
   ClipboardCheck,
   AlertTriangle,
   CheckCircle2,
-  History,
-  ArrowRight,
-  ShieldCheck,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
@@ -52,7 +47,7 @@ interface Tab7ProductionReportProps {
   onNavigateToTab4?: () => void;
 }
 
-export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNavigateToTab4 }) => {
+export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
   const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
@@ -67,6 +62,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
   } = useInventory();
 
   const [editingReport, setEditingReport] = useState<ProductionReportRow | null>(null);
+  const [selectedForPrint, setSelectedForPrint] = useState<ProductionReportRow | null>(null);
 
   const defaultDate = getCurrentDateFormatted();
   const sizes = useMemo(() => {
@@ -89,84 +85,60 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
       poNumber: currentCustomerPlanOrders[0]?.poNumber || '',
       itemCode: currentCustomerPlanOrders[0]?.itemCode || '',
       lineId: currentCustomerProductionIssues[0]?.lineId || 'Chuyền 1',
-      unit: 'PRS',
+      unit: currentCustomerPlanOrders[0]?.unit || 'PRS',
       completedQuantities: compInit,
       damagedQuantities: damInit,
       note: '',
     };
   };
 
-  const [activeSubTab, setActiveSubTab] = useState<'ENTRY' | 'SAVED'>('ENTRY');
-  const [draftRows, setDraftRows] = useState<DraftReportRow[]>([createEmptyRow()]);
+  const [draftRow, setDraftRow] = useState<DraftReportRow>(createEmptyRow);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showPrintModal, setShowPrintModal] = useState(false);
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleAddRows = (count: number = 1) => {
-    const newRows: DraftReportRow[] = [];
-    for (let i = 0; i < count; i++) {
-      newRows.push(createEmptyRow());
-    }
-    setDraftRows((prev) => [...prev, ...newRows]);
-  };
-
-  const handleUpdateDraftField = (id: string, field: keyof DraftReportRow, value: any) => {
-    setDraftRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const updated = { ...r, [field]: value };
-        if (field === 'poNumber') {
-          const match = currentCustomerPlanOrders.find(
-            (p) => p.poNumber.toUpperCase() === String(value).toUpperCase()
-          );
-          if (match) {
-            updated.itemCode = match.itemCode;
-            updated.unit = match.unit;
-          }
+  const handleUpdateDraftField = (field: keyof DraftReportRow, value: any) => {
+    setDraftRow((prev) => {
+      const updated = { ...prev, [field]: value };
+      if (field === 'poNumber') {
+        const match = currentCustomerPlanOrders.find(
+          (p) => p.poNumber.toUpperCase() === String(value).toUpperCase()
+        );
+        if (match) {
+          updated.itemCode = match.itemCode;
+          updated.unit = match.unit;
         }
-        return updated;
-      })
-    );
+      }
+      return updated;
+    });
   };
 
   const handleUpdateSizeQty = (
-    rowId: string,
     type: 'completed' | 'damaged',
     size: string,
     val: string
   ) => {
     const num = val === '' ? '' : Math.max(0, parseFloat(val) || 0);
-    setDraftRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== rowId) return r;
-        if (type === 'completed') {
-          return {
-            ...r,
-            completedQuantities: {
-              ...r.completedQuantities,
-              [size]: num,
-            },
-          };
-        } else {
-          return {
-            ...r,
-            damagedQuantities: {
-              ...r.damagedQuantities,
-              [size]: num,
-            },
-          };
-        }
-      })
-    );
-  };
-
-  const handleRemoveDraftRow = (id: string) => {
-    if (draftRows.length <= 1) {
-      setDraftRows([createEmptyRow()]);
-      return;
-    }
-    setDraftRows((prev) => prev.filter((r) => r.id !== id));
+    setDraftRow((prev) => {
+      if (type === 'completed') {
+        return {
+          ...prev,
+          completedQuantities: {
+            ...prev.completedQuantities,
+            [size]: num,
+          },
+        };
+      } else {
+        return {
+          ...prev,
+          damagedQuantities: {
+            ...prev.damagedQuantities,
+            [size]: num,
+          },
+        };
+      }
+    });
   };
 
   // Helper to get available stock from Tab 6 for a specific PO, itemCode & size
@@ -177,30 +149,31 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
     return stockItem.currentStockSizes[size] || 0;
   };
 
-  // Calculate row total
-  const getCompletedTotal = (row: DraftReportRow): number => {
+  // Calculate totals
+  const draftCompTotal = useMemo(() => {
     return sizes.reduce((sum, s) => {
-      const q = row.completedQuantities[s];
+      const q = draftRow.completedQuantities[s];
       return sum + (typeof q === 'number' ? q : 0);
     }, 0);
-  };
+  }, [draftRow.completedQuantities, sizes]);
 
-  const getDamagedTotal = (row: DraftReportRow): number => {
+  const draftDamTotal = useMemo(() => {
     return sizes.reduce((sum, s) => {
-      const q = row.damagedQuantities[s];
+      const q = draftRow.damagedQuantities[s];
       return sum + (typeof q === 'number' ? q : 0);
     }, 0);
-  };
+  }, [draftRow.damagedQuantities, sizes]);
 
-  // Save report with Branching Logic:
-  // - If enough: confirm completion
-  // - If damaged:
-  //   - Kho còn tồn: Gắn trạng thái "Xuất bù", tự động trừ vào Tab 6 (compensationFromStock)
-  //   - Kho hết tồn: Tự động đẩy phần thiếu sang Tab 4 (compensationFromCustomer)
-  const handleSaveReport = (row: DraftReportRow) => {
+  // Save report (Enter saves)
+  const handleSaveReport = () => {
     if (!currentCustomer) return;
-    if (!row.poNumber.trim() || !row.itemCode.trim()) {
+    if (!draftRow.poNumber.trim() || !draftRow.itemCode.trim()) {
       alert('Vui lòng nhập đầy đủ Mã PO và Mã Hàng!', 'Thiếu thông tin', 'warning');
+      return;
+    }
+
+    if (draftCompTotal <= 0 && draftDamTotal <= 0) {
+      alert('Vui lòng nhập số lượng hoàn thành đạt hoặc số lượng hư hỏng!', 'Thiếu số lượng', 'warning');
       return;
     }
 
@@ -214,27 +187,24 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
     let totalFromCustomer = 0;
 
     sizes.forEach((s) => {
-      const c = typeof row.completedQuantities[s] === 'number' ? Number(row.completedQuantities[s]) : 0;
-      const d = typeof row.damagedQuantities[s] === 'number' ? Number(row.damagedQuantities[s]) : 0;
+      const c = typeof draftRow.completedQuantities[s] === 'number' ? Number(draftRow.completedQuantities[s]) : 0;
+      const d = typeof draftRow.damagedQuantities[s] === 'number' ? Number(draftRow.damagedQuantities[s]) : 0;
       completedQ[s] = c;
       damagedQ[s] = d;
 
       if (d > 0) {
         totalDamaged += d;
-        const available = getAvailableStock(row.poNumber, row.itemCode, s);
+        const available = getAvailableStock(draftRow.poNumber, draftRow.itemCode, s);
         if (available >= d) {
-          // Case 1: Kho còn đủ hàng -> Lấy tồn kho bù vào
           fromStock[s] = d;
           totalFromStock += d;
         } else if (available > 0) {
-          // Case 2a: Kho còn một phần -> Lấy hết phần còn lại, phần thiếu đẩy sang Tab 4
           fromStock[s] = available;
           totalFromStock += available;
           const shortage = d - available;
           fromCustomer[s] = shortage;
           totalFromCustomer += shortage;
         } else {
-          // Case 2b: Kho hết sạch -> Toàn bộ đẩy sang Tab 4
           fromCustomer[s] = d;
           totalFromCustomer += d;
         }
@@ -251,35 +221,41 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
     const newReport: ProductionReportRow = {
       id: `rep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       customerId: currentCustomer.id,
-      reportDate: row.reportDate.trim() || defaultDate,
-      poNumber: row.poNumber.trim().toUpperCase(),
-      itemCode: row.itemCode.trim().toUpperCase(),
-      lineId: row.lineId,
-      unit: row.unit || 'PRS',
+      reportDate: draftRow.reportDate.trim() || defaultDate,
+      poNumber: draftRow.poNumber.trim().toUpperCase(),
+      itemCode: draftRow.itemCode.trim().toUpperCase(),
+      lineId: draftRow.lineId,
+      unit: draftRow.unit || 'PRS',
       completedQuantities: completedQ,
       damagedQuantities: damagedQ,
       compensationFromStock: fromStock,
       compensationFromCustomer: fromCustomer,
       status,
-      note: row.note.trim() || undefined,
+      note: draftRow.note.trim() || undefined,
     };
 
     addProductionReport(newReport);
-    setDraftRows([createEmptyRow()]);
-    setActiveSubTab('SAVED');
+    setDraftRow(createEmptyRow());
 
-    let msg = `✅ ĐÃ GHI NHẬN BÁO CÁO NGHIỆM THU CHUYỀN ${row.lineId}!\n`;
+    let msg = `✅ ĐÃ GHI NHẬN BÁO CÁO NGHIỆM THU CHUYỀN ${draftRow.lineId}!\n`;
     if (totalDamaged === 0) {
-      msg += `• Sản xuất thành công không có hàng hỏng.`;
+      msg += `• Sản xuất hoàn thành ${draftCompTotal} đôi đạt chuẩn không có hàng hỏng.`;
     } else {
       if (totalFromStock > 0) {
-        msg += `• Kho còn tồn: Đã tự động xuất bù ${totalFromStock} đôi từ kho ➔ Trừ tồn kho Tab 5 với trạng thái 'Xuất bù'.\n`;
+        msg += `• Kho còn tồn: Đã tự động xuất bù ${totalFromStock} đôi từ kho (Trừ tồn kho Tab 5).\n`;
       }
       if (totalFromCustomer > 0) {
-        msg += `• ⚠️ Kho hết tồn cho ${totalFromCustomer} đôi: Đã tự động đẩy dữ liệu sang Tab 4 (In Phiếu Bù) để yêu cầu Khách hàng cấp thêm!\n`;
+        msg += `• Kho hết tồn cho ${totalFromCustomer} đôi: Đã tự động đẩy sang Tab 4 để In Phiếu Bù Khách hàng!\n`;
       }
     }
-    alert(msg, 'Đã Ghi Nhận Nghiệm Thu', 'success');
+    toast(msg);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveReport();
+    }
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
@@ -377,7 +353,6 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
     const dataRows: any[] = [];
     let stt = 1;
     filteredReports.forEach((rep) => {
-      // Completed row
       const compTotal = sizes.reduce((sum, s) => sum + (rep.completedQuantities[s] || 0), 0);
       dataRows.push([
         stt,
@@ -392,7 +367,6 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
         rep.status,
       ]);
 
-      // Damaged row
       const damTotal = sizes.reduce((sum, s) => sum + (rep.damagedQuantities[s] || 0), 0);
       if (damTotal > 0) {
         dataRows.push([
@@ -419,7 +393,8 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
 
   // Print preparation
   const printRows: PrintTableRow[] = useMemo(() => {
-    return filteredReports.map((r, idx) => {
+    const list = selectedForPrint ? [selectedForPrint] : filteredReports;
+    return list.map((r, idx) => {
       const cTotal = sizes.reduce((sum, s) => sum + (r.completedQuantities[s] || 0), 0);
       const dTotal = sizes.reduce((sum, s) => sum + (r.damagedQuantities[s] || 0), 0);
       return {
@@ -435,541 +410,482 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
         note: `Trạng thái: ${r.status} ${r.note ? `• ${r.note}` : ''}`,
       };
     });
-  }, [filteredReports, sizes]);
+  }, [selectedForPrint, filteredReports, sizes]);
 
   return (
-    <div className="space-y-4" ref={gridContainerRef}>
-      {/* Sub-tab Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-lg border border-slate-300 shadow-2xs">
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-md">
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('ENTRY')}
-            className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded transition-all ${
-              activeSubTab === 'ENTRY'
-                ? 'bg-white text-sky-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <ClipboardCheck className="w-3.5 h-3.5 text-sky-600" />
-            <span>1. Phiếu Nghiệm Thu &amp; Xử Lý Hỏng Mới</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('SAVED')}
-            className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded transition-all ${
-              activeSubTab === 'SAVED'
-                ? 'bg-white text-indigo-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <History className="w-3.5 h-3.5 text-indigo-600" />
-            <span>2. Sổ Nghiệm Thu Sản Xuất Đã Lưu</span>
-            <span className="bg-slate-200 text-slate-700 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-              {filteredReports.length}
+    <div
+      className="space-y-4"
+      ref={gridContainerRef}
+      onKeyDown={handleKeyDown}
+    >
+      {/* Excel Sheet Container */}
+      <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
+        {/* Top Header & Toolbar */}
+        <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
+              <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+              <span>TAB 7: GHI NHẬN SẢN XUẤT XONG (NGHIỆM THU CHUYỀN)</span>
+            </h3>
+            <span className="text-[11px] text-slate-500 hidden md:inline">
+              | Nhập số đạt &amp; hỏng, Enter lưu ngay trên bảng Excel • Tự động chuyển hàng hoàn thành sang Tab 8
             </span>
-          </button>
+          </div>
+
+          <div className="flex items-center flex-wrap gap-1.5">
+            <div className="relative w-40 sm:w-48">
+              <input
+                type="text"
+                placeholder="Tìm PO, mã hàng, chuyền..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-white"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedForPrint(null);
+                setShowPrintModal(true);
+              }}
+              disabled={filteredReports.length === 0}
+              className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5 text-indigo-600" />
+              <span>In Bảng</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={filteredReports.length === 0}
+              className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Xuất Excel</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSaveReport}
+              disabled={!draftRow.poNumber.trim() || (draftCompTotal <= 0 && draftDamTotal <= 0)}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-1.5 rounded shadow-xs transition cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>LƯU NGHIỆM THU (ENTER)</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
-          {activeSubTab === 'ENTRY' ? (
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('SAVED')}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-indigo-700 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200 transition"
-            >
-              <History className="w-3.5 h-3.5 text-slate-500" />
-              <span>Xem Sổ Đã Lưu ({filteredReports.length}) ➔</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('ENTRY')}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 px-3 py-1 rounded-md border border-sky-200 transition shadow-2xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Ghi Nhận Đợt Nghiệm Thu Mới</span>
-            </button>
-          )}
+        {/* Unified Live Excel Table */}
+        <div className="overflow-x-auto max-h-[580px] overflow-y-auto">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
+              <tr>
+                <th className="p-2 border-r border-slate-300 text-center w-9">#</th>
+                <th className="p-2 border-r border-slate-300 min-w-[90px]">Ngày BC *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[110px] bg-sky-50 text-sky-900 font-bold">
+                  Chuyền SX *
+                </th>
+                <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
+                <th className="p-2 border-r border-slate-300 min-w-[125px]">Phân Loại</th>
 
-          {onNavigateToTab4 && (
-            <button
-              type="button"
-              onClick={onNavigateToTab4}
-              className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-md border border-rose-200 transition shadow-2xs"
-            >
-              <span>Nhận Bù Vật Tư (Tab 4) ➔</span>
-            </button>
-          )}
+                {sizes.map((s) => (
+                  <th
+                    key={s}
+                    className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-slate-100 text-slate-800"
+                  >
+                    Size {s}
+                  </th>
+                ))}
+
+                <th className="p-2 border-r border-slate-300 min-w-[80px] text-right bg-emerald-100 text-emerald-950 font-bold">
+                  TỔNG SL
+                </th>
+                <th className="p-2 border-r border-slate-300 min-w-[140px] text-center">Trạng Thái Xử Lý</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px]">Ghi Chú</th>
+                <th className="p-2 text-center w-24">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-sans">
+              {/* PHẦN 1: CÁC DÒNG BÁO CÁO ĐÃ LƯU (Có nút Sửa & Xóa) */}
+              {filteredReports.map((rep, idx) => {
+                const compTotal = sizes.reduce((sum, s) => sum + (rep.completedQuantities[s] || 0), 0);
+                const damTotal = sizes.reduce((sum, s) => sum + (rep.damagedQuantities[s] || 0), 0);
+
+                return (
+                  <React.Fragment key={rep.id}>
+                    {/* Dòng Thành phẩm hoàn thành đạt */}
+                    <tr className="bg-white hover:bg-slate-50 transition-colors">
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-1.5 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px] align-middle bg-white"
+                      >
+                        {idx + 1}
+                      </td>
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-2 border-r border-slate-200 whitespace-nowrap font-mono text-slate-700 align-middle bg-white"
+                      >
+                        {rep.reportDate}
+                      </td>
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-2 border-r border-slate-200 whitespace-nowrap font-mono font-bold text-sky-700 align-middle bg-white"
+                      >
+                        {rep.poNumber}
+                      </td>
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-2 border-r border-slate-200 whitespace-nowrap font-mono font-bold text-slate-800 align-middle bg-white"
+                      >
+                        {rep.itemCode}
+                      </td>
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-2 border-r border-slate-200 whitespace-nowrap font-semibold text-sky-900 bg-sky-50/40 align-middle"
+                      >
+                        {rep.lineId}
+                      </td>
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-2 border-r border-slate-200 text-center text-slate-600 align-middle bg-white"
+                      >
+                        {rep.unit}
+                      </td>
+
+                      <td className="p-2 border-r border-slate-200 font-semibold text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Thành phẩm đạt</span>
+                      </td>
+
+                      {sizes.map((s) => {
+                        const q = rep.completedQuantities[s] || 0;
+                        return (
+                          <td
+                            key={s}
+                            className={`p-2 border-r border-slate-200 text-center font-mono ${
+                              q > 0 ? 'text-emerald-900 font-bold bg-emerald-50/40' : 'text-slate-300'
+                            }`}
+                          >
+                            {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                          </td>
+                        );
+                      })}
+
+                      <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-emerald-50 text-emerald-950">
+                        {compTotal.toLocaleString('vi-VN')}
+                      </td>
+
+                      <td className="p-2 border-r border-slate-200 text-center">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                            rep.status === 'Đủ hàng'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : rep.status === 'Xuất bù từ kho'
+                              ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}
+                        >
+                          {rep.status}
+                        </span>
+                      </td>
+
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-2 border-r border-slate-200 text-slate-600 text-[11px] truncate max-w-[140px] align-middle bg-white"
+                      >
+                        {rep.note || '-'}
+                      </td>
+
+                      {/* Nút Sửa & Xóa trên mỗi báo cáo */}
+                      <td
+                        rowSpan={damTotal > 0 ? 2 : 1}
+                        className="p-1.5 text-center whitespace-nowrap align-middle bg-white"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedForPrint(rep);
+                              setShowPrintModal(true);
+                            }}
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition cursor-pointer"
+                            title="In báo cáo này"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingReport({
+                                ...rep,
+                                completedQuantities: { ...rep.completedQuantities },
+                                damagedQuantities: { ...rep.damagedQuantities },
+                              })
+                            }
+                            className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                            title="Chỉnh sửa báo cáo"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              confirm(`Bạn có chắc muốn xóa báo cáo nghiệm thu PO ${rep.poNumber} (${rep.itemCode}) tại ${rep.lineId}?`, () => {
+                                deleteProductionReport(rep.id);
+                                toast(`✅ Đã xóa báo cáo PO ${rep.poNumber}`);
+                              });
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                            title="Xóa báo cáo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Dòng Làm hư hỏng (nếu có) */}
+                    {damTotal > 0 && (
+                      <tr className="bg-rose-50/20 hover:bg-rose-50/40 transition-colors border-b-2 border-slate-300">
+                        <td className="p-2 border-r border-slate-200 font-semibold text-rose-800 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>Làm hư hỏng</span>
+                        </td>
+
+                        {sizes.map((s) => {
+                          const q = rep.damagedQuantities[s] || 0;
+                          return (
+                            <td
+                              key={s}
+                              className={`p-2 border-r border-slate-200 text-center font-mono ${
+                                q > 0 ? 'text-rose-900 font-bold bg-rose-100/60' : 'text-slate-300'
+                              }`}
+                            >
+                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                            </td>
+                          );
+                        })}
+
+                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-rose-100 text-rose-950">
+                          {damTotal.toLocaleString('vi-VN')}
+                        </td>
+
+                        <td className="p-2 border-r border-slate-200 text-center text-[10px] text-slate-600">
+                          Kho bù: <strong>{sizes.reduce((s, k) => s + (rep.compensationFromStock[k] || 0), 0)}</strong> | KH bù: <strong>{sizes.reduce((s, k) => s + (rep.compensationFromCustomer[k] || 0), 0)}</strong>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* PHẦN 2: DÒNG NHẬP LIỆU TRỰC TIẾP TRÊN PHIẾU (Enter để lưu) */}
+              {/* Row 1: Thông tin chung + Số lượng Thành Phẩm Đạt */}
+              <tr className="bg-[#f0fdf4] hover:bg-[#dcfce7] transition-colors border-t-2 border-emerald-400">
+                <td rowSpan={2} className="p-1.5 border-r border-emerald-300 text-center font-bold text-emerald-800 font-mono text-[11px] align-middle bg-[#f0fdf4]">
+                  <span className="inline-block px-1 bg-emerald-200 text-emerald-900 rounded text-[10px]">
+                    + Mới
+                  </span>
+                </td>
+
+                <td rowSpan={2} className="p-0 border-r border-emerald-300 align-middle bg-[#f0fdf4]">
+                  <input
+                    type="text"
+                    value={draftRow.reportDate}
+                    onChange={(e) => handleUpdateDraftField('reportDate', e.target.value)}
+                    placeholder="DD/MM/YYYY"
+                    className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </td>
+
+                {/* Mã PO with suggestions */}
+                <td rowSpan={2} className="p-0 border-r border-emerald-300 align-middle bg-[#f0fdf4]">
+                  <input
+                    type="text"
+                    list="po-report-list"
+                    value={draftRow.poNumber}
+                    onChange={(e) => handleUpdateDraftField('poNumber', e.target.value)}
+                    placeholder="MÃ PO..."
+                    className="w-full h-8 px-2 text-xs font-mono font-bold text-sky-800 uppercase bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                  />
+                  <datalist id="po-report-list">
+                    {currentCustomerPlanOrders.map((p) => (
+                      <option key={p.id} value={p.poNumber}>
+                        {p.poNumber} - {p.itemCode}
+                      </option>
+                    ))}
+                  </datalist>
+                </td>
+
+                <td rowSpan={2} className="p-0 border-r border-emerald-300 align-middle bg-[#f0fdf4]">
+                  <input
+                    type="text"
+                    value={draftRow.itemCode}
+                    onChange={(e) => handleUpdateDraftField('itemCode', e.target.value)}
+                    placeholder="Mã Hàng"
+                    className="w-full h-8 px-2 text-xs font-mono font-bold text-slate-900 uppercase bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </td>
+
+                <td rowSpan={2} className="p-0 border-r border-emerald-300 bg-sky-50/50 align-middle">
+                  <select
+                    value={draftRow.lineId}
+                    onChange={(e) => handleUpdateDraftField('lineId', e.target.value)}
+                    className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white cursor-pointer"
+                  >
+                    {LINE_OPTIONS.map((line) => (
+                      <option key={line} value={line}>
+                        {line}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+
+                <td rowSpan={2} className="p-0 border-r border-emerald-300 align-middle bg-[#f0fdf4]">
+                  <input
+                    type="text"
+                    value={draftRow.unit}
+                    onChange={(e) => handleUpdateDraftField('unit', e.target.value)}
+                    className="w-full h-8 px-1 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </td>
+
+                <td className="p-2 border-r border-emerald-300 font-bold text-emerald-900 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>1. Đạt chuẩn (Nhập)</span>
+                </td>
+
+                {/* Nhập số lượng đạt chuẩn */}
+                {sizes.map((s) => (
+                  <td key={s} className="p-0 border-r border-emerald-300">
+                    <input
+                      type="number"
+                      min="0"
+                      value={draftRow.completedQuantities[s]}
+                      onChange={(e) => handleUpdateSizeQty('completed', s, e.target.value)}
+                      placeholder="-"
+                      className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-emerald-950 border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </td>
+                ))}
+
+                <td className="p-2 border-r border-emerald-300 text-right font-mono font-bold text-xs bg-emerald-200 text-emerald-950">
+                  {draftCompTotal > 0 ? draftCompTotal.toLocaleString('vi-VN') : '-'}
+                </td>
+
+                <td className="p-2 border-r border-emerald-300 text-center text-[10px] text-emerald-800 font-semibold">
+                  Tồn Tab 5 trừ tự động
+                </td>
+
+                <td rowSpan={2} className="p-0 border-r border-emerald-300 align-middle bg-[#f0fdf4]">
+                  <input
+                    type="text"
+                    value={draftRow.note}
+                    onChange={(e) => handleUpdateDraftField('note', e.target.value)}
+                    placeholder="Ghi chú nguyên nhân hỏng (Enter lưu)..."
+                    className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </td>
+
+                <td rowSpan={2} className="p-1.5 text-center whitespace-nowrap align-middle bg-[#f0fdf4]">
+                  <button
+                    type="button"
+                    onClick={handleSaveReport}
+                    disabled={!draftRow.poNumber.trim() || (draftCompTotal <= 0 && draftDamTotal <= 0)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded shadow-2xs transition font-bold text-xs cursor-pointer inline-flex items-center gap-1"
+                    title="Lưu báo cáo nghiệm thu này (Enter)"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Lưu (Enter)</span>
+                  </button>
+                </td>
+              </tr>
+
+              {/* Row 2: Số lượng Làm Hư Hỏng (Tùy chọn) */}
+              <tr className="bg-[#fff1f2] hover:bg-[#ffe4e6] transition-colors border-b-2 border-emerald-400">
+                <td className="p-2 border-r border-rose-300 font-bold text-rose-900 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                  <span>2. Làm hỏng (nếu có)</span>
+                </td>
+
+                {sizes.map((s) => (
+                  <td key={s} className="p-0 border-r border-rose-300">
+                    <input
+                      type="number"
+                      min="0"
+                      value={draftRow.damagedQuantities[s]}
+                      onChange={(e) => handleUpdateSizeQty('damaged', s, e.target.value)}
+                      placeholder="-"
+                      className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-rose-950 border-0 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    />
+                  </td>
+                ))}
+
+                <td className="p-2 border-r border-rose-300 text-right font-mono font-bold text-xs bg-rose-200 text-rose-950">
+                  {draftDamTotal > 0 ? draftDamTotal.toLocaleString('vi-VN') : '-'}
+                </td>
+
+                <td className="p-2 border-r border-rose-300 text-center text-[10px] text-rose-800 font-semibold">
+                  {draftDamTotal > 0 ? 'Tự động tính bù kho/KH' : '-'}
+                </td>
+              </tr>
+
+              {/* DÒNG TỔNG CỘNG TOÀN BỘ BẢNG */}
+              <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
+                <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                  TỔNG CỘNG THÀNH PHẨM ĐÃ NGHIỆM THU:
+                </td>
+                {sizes.map((s) => {
+                  const sComp = filteredReports.reduce((sum, r) => sum + (r.completedQuantities[s] || 0), 0);
+                  return (
+                    <td key={s} className="p-2 border-r border-slate-300 text-center font-mono font-bold text-xs text-emerald-950">
+                      {sComp > 0 ? sComp.toLocaleString('vi-VN') : '-'}
+                    </td>
+                  );
+                })}
+                <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-xs text-emerald-950 bg-emerald-200">
+                  {filteredReports.reduce((sum, r) => sum + sizes.reduce((sub, s) => sub + (r.completedQuantities[s] || 0), 0), 0).toLocaleString('vi-VN')}
+                </td>
+                <td colSpan={3} className="p-2 text-slate-600 text-[11px] italic">
+                  Tổng {filteredReports.length} đợt nghiệm thu chuyền
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer Note */}
+        <div className="p-2.5 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500">
+          <div className="text-[11px]">
+            <span>💡 <strong>Mẹo:</strong> Nhập số lượng đạt chuẩn (và số lượng hỏng nếu có) rồi nhấn <strong>Enter</strong> để lưu ngay vào bảng. Thành phẩm đạt sẽ tự động đồng bộ sang Tab 8!</span>
+          </div>
+          <div className="text-[11px] text-slate-600">
+            Tổng báo cáo đã lưu: <strong className="text-emerald-700">{filteredReports.length}</strong> đợt
+          </div>
         </div>
       </div>
 
-      {/* VIEW 1: DATA ENTRY FORM */}
-      {activeSubTab === 'ENTRY' && (
-        <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
-          <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>TAB 7: GHI NHẬN SẢN XUẤT XONG (NGHIỆM THU &amp; XỬ LÝ HỎNG)</span>
-              </h3>
-              <span className="text-[11px] text-slate-500 hidden md:inline">
-                | Rẽ nhánh: Kho còn tồn ➔ Tự trừ kho "Xuất bù" • Kho hết tồn ➔ Tự đẩy sang Tab 4
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleSaveReport(draftRows[0])}
-                className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-1.5 rounded shadow-xs transition"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>LƯU NGHIỆM THU (ENTER)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Form Content */}
-          <div className="p-4 space-y-4">
-            {draftRows.map((row) => {
-              const compTotal = getCompletedTotal(row);
-              const damTotal = getDamagedTotal(row);
-
-              return (
-                <div
-                  key={row.id}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleSaveReport(row);
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  {/* Row Identification */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Ngày Báo Cáo</label>
-                      <input
-                        type="text"
-                        value={row.reportDate}
-                        onChange={(e) => handleUpdateDraftField(row.id, 'reportDate', e.target.value)}
-                        placeholder="DD/MM/YYYY"
-                        className="w-full text-xs border border-slate-300 rounded p-1.5 bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Mã PO</label>
-                      <input
-                        type="text"
-                        list={`po-rep-list-${row.id}`}
-                        value={row.poNumber}
-                        onChange={(e) => handleUpdateDraftField(row.id, 'poNumber', e.target.value)}
-                        placeholder="MÃ PO"
-                        className="w-full text-xs font-mono font-bold text-sky-700 uppercase border border-slate-300 rounded p-1.5 bg-white"
-                      />
-                      <datalist id={`po-rep-list-${row.id}`}>
-                        {currentCustomerPlanOrders.map((p) => (
-                          <option key={p.id} value={p.poNumber}>
-                            {p.poNumber} - {p.itemCode} ({p.description})
-                          </option>
-                        ))}
-                      </datalist>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Mã Hàng (TT Code)</label>
-                      <input
-                        type="text"
-                        value={row.itemCode}
-                        onChange={(e) => handleUpdateDraftField(row.id, 'itemCode', e.target.value)}
-                        placeholder="Mã Hàng"
-                        className="w-full text-xs font-mono font-bold text-slate-900 uppercase border border-slate-300 rounded p-1.5 bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Chuyền Sản Xuất</label>
-                      <select
-                        value={row.lineId}
-                        onChange={(e) => handleUpdateDraftField(row.id, 'lineId', e.target.value)}
-                        className="w-full text-xs font-bold text-sky-900 border border-slate-300 rounded p-1.5 bg-white"
-                      >
-                        {LINE_OPTIONS.map((l) => (
-                          <option key={l} value={l}>
-                            {l}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">ĐVT</label>
-                      <select
-                        value={row.unit}
-                        onChange={(e) => handleUpdateDraftField(row.id, 'unit', e.target.value)}
-                        className="w-full text-xs border border-slate-300 rounded p-1.5 bg-white"
-                      >
-                        <option value="PRS">PRS</option>
-                        <option value="đôi">đôi</option>
-                        <option value="bộ">bộ</option>
-                        <option value="chiếc">chiếc</option>
-                        <option value="cái">cái</option>
-                        <option value="mét">mét</option>
-                        <option value="cuộn">cuộn</option>
-                        <option value="sf">sf</option>
-                        <option value="yard/yds">yard/yds</option>
-                        {!['PRS', 'đôi', 'bộ', 'chiếc', 'cái', 'mét', 'cuộn', 'sf', 'yard/yds'].includes(row.unit) && row.unit && (
-                          <option value={row.unit}>{row.unit}</option>
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Matrix Input Table for Completed & Damaged */}
-                  <div className="border border-slate-300 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs text-left border-collapse">
-                      <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] border-b border-slate-300">
-                        <tr>
-                          <th className="p-2 border-r border-slate-300 min-w-[150px]">Hạng Mục Nghiệm Thu</th>
-                          {sizes.map((s) => (
-                            <th
-                              key={s}
-                              className="p-2 border-r border-slate-300 min-w-[50px] text-center font-mono font-bold bg-slate-100 text-slate-800"
-                            >
-                              Size {s}
-                            </th>
-                          ))}
-                          <th className="p-2 min-w-[90px] text-right font-bold bg-slate-100 text-slate-900">
-                            TỔNG CỘNG
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {/* Row 1: Thành Phẩm Hoàn Thành Đạt */}
-                        <tr className="bg-emerald-50/20">
-                          <td className="p-2 border-r border-slate-200 font-bold text-emerald-800 flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>1. Số Lượng Hoàn Thành Đạt</span>
-                          </td>
-                          {sizes.map((s) => (
-                            <td key={s} className="p-0 border-r border-slate-200">
-                              <input
-                                type="number"
-                                min="0"
-                                value={row.completedQuantities[s]}
-                                onChange={(e) => handleUpdateSizeQty(row.id, 'completed', s, e.target.value)}
-                                placeholder="0"
-                                className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-emerald-950 border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                              />
-                            </td>
-                          ))}
-                          <td className="p-2 text-right font-mono font-bold text-xs bg-emerald-100 text-emerald-950">
-                            {compTotal > 0 ? compTotal.toLocaleString('vi-VN') : '0'}
-                          </td>
-                        </tr>
-
-                        {/* Row 2: Số Lượng Làm Hư Hỏng */}
-                        <tr className="bg-rose-50/20">
-                          <td className="p-2 border-r border-slate-200 font-bold text-rose-800 flex items-center gap-1.5">
-                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                            <span>2. Số Lượng Làm Hư Hỏng</span>
-                          </td>
-                          {sizes.map((s) => (
-                            <td key={s} className="p-0 border-r border-slate-200">
-                              <input
-                                type="number"
-                                min="0"
-                                value={row.damagedQuantities[s]}
-                                onChange={(e) => handleUpdateSizeQty(row.id, 'damaged', s, e.target.value)}
-                                placeholder="0"
-                                className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-rose-950 border-0 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                              />
-                            </td>
-                          ))}
-                          <td className="p-2 text-right font-mono font-bold text-xs bg-rose-100 text-rose-950">
-                            {damTotal > 0 ? damTotal.toLocaleString('vi-VN') : '0'}
-                          </td>
-                        </tr>
-
-                        {/* Row 3: Tồn Kho Hiện Có (Tham chiếu từ Tab 5 để đối chiếu tức thời) */}
-                        <tr className="bg-slate-50 text-[11px] text-slate-500">
-                          <td className="p-2 border-r border-slate-200 font-medium italic flex items-center gap-1.5">
-                            <span>↳ Tồn kho hiện có (Tab 5)</span>
-                          </td>
-                          {sizes.map((s) => {
-                            const stock = getAvailableStock(row.poNumber, row.itemCode, s);
-                            return (
-                              <td key={s} className="p-1 border-r border-slate-200 text-center font-mono font-semibold text-slate-600">
-                                {stock}
-                              </td>
-                            );
-                          })}
-                          <td className="p-1 text-right font-mono text-slate-600 italic">
-                            Đối chiếu
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Branching Logic Indicator Box */}
-                  {damTotal > 0 && (
-                    <div className="p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 space-y-1.5 text-xs">
-                      <div className="flex items-center gap-2 font-bold">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>KẾT QUẢ ĐỐI CHIẾU RẼ NHÁNH XỬ LÝ HỎNG TỰ ĐỘNG:</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                        {sizes.map((s) => {
-                          const d = typeof row.damagedQuantities[s] === 'number' ? Number(row.damagedQuantities[s]) : 0;
-                          if (d <= 0) return null;
-                          const avail = getAvailableStock(row.poNumber, row.itemCode, s);
-                          const canCompFromStock = avail >= d;
-                          return (
-                            <div
-                              key={s}
-                              className={`p-2 rounded border ${
-                                canCompFromStock
-                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                                    : 'bg-rose-50 border-rose-300 text-rose-800'
-                              }`}
-                            >
-                              <strong>Size {s}:</strong> Hỏng {d} đôi • Tồn kho hiện còn: {avail} đôi
-                              <br />
-                              {canCompFromStock ? (
-                                <span className="font-semibold text-emerald-700">
-                                  ➔ Kho đủ hàng: Tự động trừ tồn kho Tab 5 với trạng thái "Xuất bù".
-                                </span>
-                              ) : (
-                                <span className="font-semibold text-rose-700">
-                                  ➔ Kho thiếu {d - avail} đôi: Tự động đẩy phần thiếu sang Tab 4 để In Phiếu Bù!
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Note */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Ghi chú nguyên nhân hỏng / nghiệm thu</label>
-                    <input
-                      type="text"
-                      value={row.note}
-                      onChange={(e) => handleUpdateDraftField(row.id, 'note', e.target.value)}
-                      placeholder="Nguyên nhân hư hỏng (VD: Thao tác ép nhiệt lệch màng, lỗi dao dập...)"
-                      className="w-full text-xs border border-slate-300 rounded p-2 bg-white"
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* VIEW 2: SAVED REPORTS */}
-      {activeSubTab === 'SAVED' && (
-        <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
-          <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider">
-                Sổ Nhật Ký Nghiệm Thu Sản Xuất Đã Lưu ({filteredReports.length} đợt)
-              </h3>
-              <span className="text-[11px] text-slate-500 hidden md:inline">
-                | Lịch sử đánh giá tỷ lệ hỏng của từng Chuyền
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="relative w-44 sm:w-52">
-                <input
-                  type="text"
-                  placeholder="Tìm PO, chuyền..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-sky-500 focus:outline-none"
-                />
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowPrintModal(true)}
-                className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs"
-              >
-                <Printer className="w-3.5 h-3.5 text-indigo-600" />
-                <span>In HTML</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Xuất Excel</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveSubTab('ENTRY')}
-                className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3 py-1.5 rounded transition shadow-2xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Báo Cáo Nghiệm Thu Mới</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
-                <tr>
-                  <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
-                  <th className="p-2 border-r border-slate-300 whitespace-nowrap min-w-[85px]">Ngày BC</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng (TT)</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[110px] font-bold text-sky-900 bg-sky-50">
-                    Chuyền SX
-                  </th>
-                  <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
-                  <th className="p-2 border-r border-slate-300 text-right min-w-[80px] bg-emerald-50 text-emerald-900 font-bold">
-                    SL Đạt
-                  </th>
-                  <th className="p-2 border-r border-slate-300 text-right min-w-[80px] bg-rose-50 text-rose-900 font-bold">
-                    SL Hỏng
-                  </th>
-                  <th className="p-2 border-r border-slate-300 text-center min-w-[125px]">Trạng Thái Xử Lý</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[120px]">Ghi Chú</th>
-                  <th className="p-2 text-center w-16">Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-sans">
-                {filteredReports.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="p-8 text-center text-slate-400 text-xs italic">
-                      Chưa có báo cáo nghiệm thu sản xuất nào.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredReports.map((rep, idx) => {
-                    const cTotal = sizes.reduce((sum, s) => sum + (rep.completedQuantities[s] || 0), 0);
-                    const dTotal = sizes.reduce((sum, s) => sum + (rep.damagedQuantities[s] || 0), 0);
-
-                    return (
-                      <tr key={rep.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
-                          {idx + 1}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-slate-700 whitespace-nowrap">
-                          {rep.reportDate}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700 whitespace-nowrap">
-                          {rep.poNumber}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-900">
-                          {rep.itemCode}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-bold text-sky-900 bg-sky-50/40">
-                          {rep.lineId}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-center text-slate-500">
-                          {rep.unit}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-emerald-800 bg-emerald-50/30">
-                          {cTotal.toLocaleString('vi-VN')}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-rose-800 bg-rose-50/30">
-                          {dTotal > 0 ? dTotal.toLocaleString('vi-VN') : '-'}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-center">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                              rep.status === 'Đủ hàng'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : rep.status === 'Xuất bù từ kho'
-                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                                : 'bg-rose-100 text-rose-800 border border-rose-200'
-                            }`}
-                          >
-                            {rep.status}
-                          </span>
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-slate-500 text-[11px] truncate max-w-[130px]">
-                          {rep.note || '-'}
-                        </td>
-                        <td className="p-2 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setEditingReport({
-                                  ...rep,
-                                  completedQuantities: { ...rep.completedQuantities },
-                                  damagedQuantities: { ...rep.damagedQuantities },
-                                })
-                              }
-                              className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
-                              title="Chỉnh sửa báo cáo"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                confirm(`Bạn có chắc muốn xóa báo cáo nghiệm thu PO ${rep.poNumber} (${rep.itemCode}) tại ${rep.lineId}?`, () => {
-                                  deleteProductionReport(rep.id);
-                                  toast(`✅ Đã xóa báo cáo PO ${rep.poNumber}`);
-                                });
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
-                              title="Xóa báo cáo"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Print HTML Modal */}
-      <PrintHtmlModal
-        isOpen={showPrintModal}
-        onClose={() => setShowPrintModal(false)}
-        title="PHIẾU NGHIỆM THU SẢN XUẤT VÀ XỬ LÝ HÀNG HỎNG (TAB 7)"
-        customerName={currentCustomer?.name || 'Chung'}
-        documentCode="07-NT/HONG"
-        sizes={sizes}
-        rows={printRows}
-      />
-
-      {/* Edit Report Modal */}
+      {/* MODAL SỬA BÁO CÁO NGHIỆM THU */}
       {editingReport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-800 text-white">
+            <div className="flex items-center justify-between px-5 py-3.5 bg-emerald-800 text-white">
               <h3 className="font-bold text-sm flex items-center gap-2">
-                <Edit className="w-4 h-4 text-sky-400" />
+                <Edit className="w-4 h-4 text-emerald-300" />
                 <span>CHỈNH SỬA BÁO CÁO NGHIỆM THU - PO: {editingReport.poNumber}</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setEditingReport(null)}
-                className="text-slate-400 hover:text-white p-1 rounded transition cursor-pointer"
+                className="text-slate-300 hover:text-white p-1 rounded transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -986,7 +902,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                     required
                     value={editingReport.reportDate}
                     onChange={(e) => setEditingReport({ ...editingReport, reportDate: e.target.value })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500 font-mono"
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-emerald-500 font-mono"
                   />
                 </div>
 
@@ -997,7 +913,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                   <select
                     value={editingReport.lineId}
                     onChange={(e) => setEditingReport({ ...editingReport, lineId: e.target.value })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 bg-white focus:ring-1 focus:ring-sky-500 font-semibold text-slate-800"
+                    className="w-full text-xs border border-slate-300 rounded p-2 bg-white focus:ring-1 focus:ring-emerald-500 font-semibold text-slate-800"
                   >
                     {LINE_OPTIONS.map((l) => (
                       <option key={l} value={l}>{l}</option>
@@ -1014,7 +930,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                     required
                     value={editingReport.poNumber}
                     onChange={(e) => setEditingReport({ ...editingReport, poNumber: e.target.value.toUpperCase() })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold"
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
                   />
                 </div>
 
@@ -1027,7 +943,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                     required
                     value={editingReport.itemCode}
                     onChange={(e) => setEditingReport({ ...editingReport, itemCode: e.target.value.toUpperCase() })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold"
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
                   />
                 </div>
 
@@ -1039,7 +955,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                     type="text"
                     value={editingReport.note || ''}
                     onChange={(e) => setEditingReport({ ...editingReport, note: e.target.value })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500"
+                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               </div>
@@ -1048,15 +964,15 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
               <div className="border border-emerald-200 rounded-lg p-3 bg-emerald-50/40">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold text-emerald-900 uppercase">
-                    1. Số Lượng Hoàn Thành (SL Đạt)
+                    1. Số lượng hoàn thành đạt theo Size
                   </span>
                   <span className="text-xs font-bold text-emerald-800 font-mono">
-                    Tổng: {sizes.reduce((sum, s) => sum + (Number(editingReport.completedQuantities[s]) || 0), 0)}
+                    Tổng đạt: {sizes.reduce((sum, s) => sum + (Number(editingReport.completedQuantities[s]) || 0), 0)}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2">
                   {sizes.map((s) => (
-                    <div key={s} className="bg-white border border-emerald-300 rounded p-1.5 text-center">
+                    <div key={s} className="bg-white border border-slate-300 rounded p-1.5 text-center">
                       <div className="text-[11px] font-bold text-slate-600 mb-1">Sz {s}</div>
                       <input
                         type="number"
@@ -1072,7 +988,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                             },
                           });
                         }}
-                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-emerald-500 text-emerald-900"
+                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-emerald-500"
                         placeholder="0"
                       />
                     </div>
@@ -1080,19 +996,19 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                 </div>
               </div>
 
-              {/* SL Hư Hỏng */}
+              {/* SL Làm Hư Hỏng */}
               <div className="border border-rose-200 rounded-lg p-3 bg-rose-50/40">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold text-rose-900 uppercase">
-                    2. Số Lượng Hư Hỏng (SL Hỏng)
+                    2. Số lượng làm hư hỏng theo Size (nếu có)
                   </span>
                   <span className="text-xs font-bold text-rose-800 font-mono">
-                    Tổng: {sizes.reduce((sum, s) => sum + (Number(editingReport.damagedQuantities[s]) || 0), 0)}
+                    Tổng hỏng: {sizes.reduce((sum, s) => sum + (Number(editingReport.damagedQuantities[s]) || 0), 0)}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2">
                   {sizes.map((s) => (
-                    <div key={s} className="bg-white border border-rose-300 rounded p-1.5 text-center">
+                    <div key={s} className="bg-white border border-slate-300 rounded p-1.5 text-center">
                       <div className="text-[11px] font-bold text-slate-600 mb-1">Sz {s}</div>
                       <input
                         type="number"
@@ -1108,7 +1024,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                             },
                           });
                         }}
-                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-rose-500 text-rose-900"
+                        className="w-full text-center text-xs font-mono font-bold border border-slate-200 rounded py-1 focus:ring-1 focus:ring-rose-500"
                         placeholder="0"
                       />
                     </div>
@@ -1116,7 +1032,6 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                 </div>
               </div>
 
-              {/* Actions */}
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
                 <button
                   type="button"
@@ -1127,7 +1042,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded shadow-xs transition cursor-pointer"
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs transition cursor-pointer"
                 >
                   LƯU THAY ĐỔI
                 </button>
@@ -1136,6 +1051,22 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = ({ onNa
           </div>
         </div>
       )}
+
+      {/* MODAL IN PHIẾU NGHIỆM THU */}
+      <PrintHtmlModal
+        isOpen={showPrintModal}
+        onClose={() => {
+          setShowPrintModal(false);
+          setSelectedForPrint(null);
+        }}
+        documentTitle={selectedForPrint ? `BÁO CÁO NGHIỆM THU CHUYỀN ${selectedForPrint.lineId}` : 'BẢNG TỔNG HỢP BÁO CÁO NGHIỆM THU SẢN XUẤT'}
+        documentNumber={selectedForPrint ? `BB-NT-${selectedForPrint.poNumber}` : 'TH-NGHIEM-THU'}
+        dateStr={selectedForPrint?.reportDate || defaultDate}
+        customerName={currentCustomer?.name || 'Khách hàng'}
+        poNumber={selectedForPrint?.poNumber}
+        sizes={sizes}
+        rows={printRows}
+      />
     </div>
   );
 };

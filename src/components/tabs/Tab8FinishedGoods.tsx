@@ -1,34 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { FinishedGoodsDeliveryRow } from '../../types';
+import { FinishedGoodsDeliveryRow, FinishedGoodsStockItem } from '../../types';
 import { getCurrentDateFormatted } from '../../utils/dateUtils';
 import {
   PackageCheck,
-  Truck,
   Printer,
   Download,
-  Plus,
   Search,
   Trash2,
   Edit,
   X,
+  Save,
   CheckCircle2,
-  Archive,
+  AlertCircle,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
-
-interface DraftDeliveryForm {
-  poNumber: string;
-  itemCode: string;
-  deliveryDate: string;
-  deliveryVoucher: string;
-  receiver: string;
-  unit: string;
-  sizeQuantities: Record<string, number | ''>;
-  note: string;
-}
 
 export const Tab8FinishedGoods: React.FC = () => {
   const { alert, confirm, toast } = useMessageBox();
@@ -50,148 +38,215 @@ export const Tab8FinishedGoods: React.FC = () => {
     return ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
   }, [activeSizeRun]);
 
-  const [activeSubTab, setActiveSubTab] = useState<'STOCK' | 'DELIVERY' | 'HISTORY'>('STOCK');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedForPrint, setSelectedForPrint] = useState<FinishedGoodsDeliveryRow | null>(null);
   const [showStockPrintModal, setShowStockPrintModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<FinishedGoodsDeliveryRow | null>(null);
 
-  // Form Lập phiếu xuất kho thành phẩm mới
-  const [draftForm, setDraftForm] = useState<DraftDeliveryForm>(() => {
-    const firstStock = currentCustomerFinishedGoodsStock[0];
-    const initialSizes: Record<string, number | ''> = {};
+  // Local state lưu trữ số lượng xuất đang nhập trực tiếp trên dòng 2 của bảng (theo item.key)
+  const [deliveredInputs, setDeliveredInputs] = useState<Record<string, Record<string, number | ''>>>({});
+
+  // Helper lấy giá trị đang nhập (hoặc từ dữ liệu đã lưu nếu chưa gõ)
+  const getItemDeliveredSizes = (item: FinishedGoodsStockItem): Record<string, number | ''> => {
+    if (deliveredInputs[item.key]) {
+      return deliveredInputs[item.key];
+    }
+    const init: Record<string, number | ''> = {};
     sizes.forEach((s) => {
-      initialSizes[s] = '';
+      const savedVal = item.deliveredSizes[s];
+      init[s] = savedVal > 0 ? savedVal : '';
     });
+    return init;
+  };
 
-    return {
-      poNumber: firstStock?.poNumber || '',
-      itemCode: firstStock?.itemCode || '',
-      deliveryDate: defaultDate,
-      deliveryVoucher: `XKTP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      receiver: currentCustomer?.name || 'Khách hàng',
-      unit: firstStock?.unit || 'PRS',
-      sizeQuantities: initialSizes,
-      note: 'Xuất giao thành phẩm cho khách hàng',
-    };
-  });
-
-  // Khi chọn PO / Mã hàng trong form xuất, tự động cập nhật thông tin
-  const handleSelectStockItem = (key: string) => {
-    const item = currentCustomerFinishedGoodsStock.find((s) => s.key === key);
-    if (!item) return;
-
-    setDraftForm((prev) => ({
+  const handleUpdateItemSize = (itemKey: string, size: string, val: string, currentItem: FinishedGoodsStockItem) => {
+    const current = deliveredInputs[itemKey] || getItemDeliveredSizes(currentItem);
+    const num = val === '' ? '' : Math.max(0, parseInt(val, 10) || 0);
+    setDeliveredInputs((prev) => ({
       ...prev,
-      poNumber: item.poNumber,
-      itemCode: item.itemCode,
-      unit: item.unit,
+      [itemKey]: {
+        ...current,
+        [size]: num,
+      },
     }));
   };
 
-  // Helper lấy tồn kho thành phẩm khả dụng hiện tại cho một PO, mã hàng & size
-  const getAvailableFinishedStock = (po: string, code: string, s: string): number => {
-    const key = `${po.trim().toUpperCase()}__${code.trim().toUpperCase()}`;
-    const stockItem = currentCustomerFinishedGoodsStock.find((st) => st.key === key);
-    if (!stockItem) return 0;
-    return stockItem.stockSizes[s] || 0;
+  // Paste ma trận số lượng từ Excel vào dòng 2 bắt đầu từ size được click
+  const handleSizePaste = (
+    e: React.ClipboardEvent,
+    itemKey: string,
+    startSize: string,
+    currentItem: FinishedGoodsStockItem
+  ) => {
+    const clip = e.clipboardData.getData('text');
+    if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
+
+    const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
+    if (parts.length > 1) {
+      e.preventDefault();
+      const current = deliveredInputs[itemKey] || getItemDeliveredSizes(currentItem);
+      const nextSq = { ...current };
+      const startIdx = sizes.indexOf(startSize);
+
+      parts.forEach((p, offset) => {
+        const targetIdx = startIdx + offset;
+        if (targetIdx < sizes.length) {
+          const targetSize = sizes[targetIdx];
+          const num = parseInt(p.replace(/,/g, ''), 10);
+          nextSq[targetSize] = isNaN(num) ? '' : Math.max(0, num);
+        }
+      });
+
+      setDeliveredInputs((prev) => ({
+        ...prev,
+        [itemKey]: nextSq,
+      }));
+      toast(`📋 Đã dán ${parts.length} số lượng xuất bắt đầu từ Size ${startSize}!`);
+    }
   };
 
-  // Tính tổng số lượng xuất đang nhập trong form
-  const draftTotalQty = useMemo(() => {
-    return sizes.reduce((sum, s) => {
-      const v = draftForm.sizeQuantities[s];
-      return sum + (typeof v === 'number' ? v : 0);
-    }, 0);
-  }, [draftForm.sizeQuantities, sizes]);
-
-  // Lưu phiếu xuất kho thành phẩm mới (Hỗ trợ nhấn Enter)
-  const handleSaveDelivery = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Lưu số lượng xuất trực tiếp cho 1 PO/SKU (Enter hoặc bấm nút Lưu)
+  const handleSaveOutbound = (item: FinishedGoodsStockItem) => {
     if (!currentCustomer) return;
 
-    if (!draftForm.poNumber.trim() || !draftForm.itemCode.trim()) {
-      alert('Vui lòng chọn hoặc nhập đầy đủ Mã PO và Mã Hàng!', 'Thiếu thông tin', 'warning');
-      return;
-    }
-
-    if (!draftForm.deliveryVoucher.trim()) {
-      alert('Vui lòng nhập Số phiếu xuất kho thành phẩm!', 'Thiếu thông tin', 'warning');
-      return;
-    }
-
+    const currentSq = deliveredInputs[item.key] || getItemDeliveredSizes(item);
     const cleanedSizes: Record<string, number> = {};
     let total = 0;
     let hasOverStock = false;
     let overStockMsg = '';
 
     sizes.forEach((s) => {
-      const val = typeof draftForm.sizeQuantities[s] === 'number' ? Number(draftForm.sizeQuantities[s]) : 0;
+      const val = typeof currentSq[s] === 'number' ? Number(currentSq[s]) : 0;
       if (val > 0) {
         cleanedSizes[s] = val;
         total += val;
 
-        const avail = getAvailableFinishedStock(draftForm.poNumber, draftForm.itemCode, s);
-        if (val > avail) {
+        const inbound = item.inboundSizes[s] || 0;
+        if (val > inbound) {
           hasOverStock = true;
-          overStockMsg += `• Size ${s}: Cần xuất ${val} nhưng tồn kho chỉ còn ${avail} đôi!\n`;
+          overStockMsg += `• Size ${s}: Xuất ${val} nhưng nhập kho chỉ có ${inbound} đôi!\n`;
         }
       }
     });
 
     if (total <= 0) {
-      alert('Vui lòng nhập số lượng xuất thành phẩm cho ít nhất một Size!', 'Chưa nhập số lượng', 'warning');
+      alert('Vui lòng nhập số lượng xuất cho ít nhất một Size!', 'Chưa nhập số lượng', 'warning');
       return;
     }
 
     if (hasOverStock) {
       alert(
-        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất không vượt quá tồn kho khả dụng.`,
+        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất không vượt quá nhập kho.`,
         'Vượt Tồn Kho Thành Phẩm',
         'danger'
       );
       return;
     }
 
-    const newDelivery: FinishedGoodsDeliveryRow = {
-      id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      customerId: currentCustomer.id,
-      deliveryDate: draftForm.deliveryDate.trim() || defaultDate,
-      poNumber: draftForm.poNumber.trim().toUpperCase(),
-      itemCode: draftForm.itemCode.trim().toUpperCase(),
-      deliveryVoucher: draftForm.deliveryVoucher.trim().toUpperCase(),
-      receiver: draftForm.receiver.trim() || currentCustomer.name,
-      unit: draftForm.unit || 'PRS',
-      sizeQuantities: cleanedSizes,
-      totalQty: total,
-      note: draftForm.note.trim() || undefined,
-      createdAt: new Date().toISOString(),
-    };
+    // Kiểm tra xem đã có phiếu xuất nào cho PO & Item này chưa
+    const existingDelivery = currentCustomerFinishedGoodsDeliveries.find(
+      (d) =>
+        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
+        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
+    );
 
-    addFinishedGoodsDelivery(newDelivery);
-    toast(`✅ Đã lập phiếu xuất kho ${newDelivery.deliveryVoucher} cho ${total} đôi thành phẩm PO ${newDelivery.poNumber}!`);
-
-    // Reset form
-    const resetSizes: Record<string, number | ''> = {};
-    sizes.forEach((s) => {
-      resetSizes[s] = '';
-    });
-
-    setDraftForm({
-      poNumber: draftForm.poNumber,
-      itemCode: draftForm.itemCode,
-      deliveryDate: defaultDate,
-      deliveryVoucher: `XKTP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      receiver: currentCustomer.name,
-      unit: draftForm.unit,
-      sizeQuantities: resetSizes,
-      note: 'Xuất giao thành phẩm cho khách hàng',
-    });
-
-    setActiveSubTab('HISTORY');
+    if (existingDelivery) {
+      const updated: FinishedGoodsDeliveryRow = {
+        ...existingDelivery,
+        sizeQuantities: cleanedSizes,
+        totalQty: total,
+      };
+      updateFinishedGoodsDelivery(updated);
+      toast(`✅ Đã cập nhật số lượng xuất giao cho PO ${item.poNumber} (${total.toLocaleString('vi-VN')} đôi)!`);
+    } else {
+      const newDelivery: FinishedGoodsDeliveryRow = {
+        id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        customerId: currentCustomer.id,
+        deliveryDate: defaultDate,
+        poNumber: item.poNumber,
+        itemCode: item.itemCode,
+        deliveryVoucher: `XKTP-${item.poNumber}`,
+        receiver: currentCustomer.name || 'Khách hàng',
+        unit: item.unit || 'PRS',
+        sizeQuantities: cleanedSizes,
+        totalQty: total,
+        note: 'Xuất giao thành phẩm cho khách hàng',
+        createdAt: new Date().toISOString(),
+      };
+      addFinishedGoodsDelivery(newDelivery);
+      toast(`✅ Đã ghi nhận xuất giao cho PO ${item.poNumber} (${total.toLocaleString('vi-VN')} đôi)!`);
+    }
   };
 
-  // Cập nhật phiếu xuất đang sửa
+  // Xóa / Hủy số lượng đã xuất cho 1 PO/SKU
+  const handleDeleteOutbound = (item: FinishedGoodsStockItem) => {
+    const existingDeliveries = currentCustomerFinishedGoodsDeliveries.filter(
+      (d) =>
+        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
+        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
+    );
+
+    if (existingDeliveries.length === 0 && (!deliveredInputs[item.key] || item.totalDelivered === 0)) {
+      alert('Chưa có số lượng xuất nào được lưu cho đơn hàng này.');
+      return;
+    }
+
+    confirm(
+      `Bạn có chắc chắn muốn xóa/hủy toàn bộ số lượng xuất của PO ${item.poNumber}?\nTồn kho thành phẩm sẽ được hoàn trả 100%!`,
+      () => {
+        existingDeliveries.forEach((d) => deleteFinishedGoodsDelivery(d.id));
+        const emptySq: Record<string, number | ''> = {};
+        sizes.forEach((s) => {
+          emptySq[s] = '';
+        });
+        setDeliveredInputs((prev) => ({
+          ...prev,
+          [item.key]: emptySq,
+        }));
+        toast(`Đã xóa số lượng xuất của PO ${item.poNumber}. Tồn kho thành phẩm đã được phục hồi!`);
+      }
+    );
+  };
+
+  // Mở modal sửa thông tin chứng từ xuất (Ngày, số phiếu, người nhận, ghi chú)
+  const handleOpenEditModal = (item: FinishedGoodsStockItem) => {
+    const existingDelivery = currentCustomerFinishedGoodsDeliveries.find(
+      (d) =>
+        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
+        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
+    );
+
+    const currentSq = deliveredInputs[item.key] || getItemDeliveredSizes(item);
+    const cleanedSizes: Record<string, number> = {};
+    sizes.forEach((s) => {
+      const v = typeof currentSq[s] === 'number' ? Number(currentSq[s]) : 0;
+      if (v > 0) cleanedSizes[s] = v;
+    });
+
+    if (existingDelivery) {
+      setEditingDelivery({
+        ...existingDelivery,
+        sizeQuantities: Object.keys(cleanedSizes).length > 0 ? cleanedSizes : existingDelivery.sizeQuantities,
+      });
+    } else {
+      setEditingDelivery({
+        id: `fg-del-${Date.now()}`,
+        customerId: currentCustomer?.id || '',
+        deliveryDate: defaultDate,
+        poNumber: item.poNumber,
+        itemCode: item.itemCode,
+        deliveryVoucher: `XKTP-${item.poNumber}`,
+        receiver: currentCustomer?.name || 'Khách hàng',
+        unit: item.unit || 'PRS',
+        sizeQuantities: cleanedSizes,
+        totalQty: Object.values(cleanedSizes).reduce((a, b) => a + b, 0),
+        note: 'Xuất giao thành phẩm cho khách hàng',
+        createdAt: new Date().toISOString(),
+      });
+    }
+  };
+
+  // Cập nhật phiếu xuất từ modal
   const handleSaveEditDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDelivery) return;
@@ -199,7 +254,7 @@ export const Tab8FinishedGoods: React.FC = () => {
     const cleanedSizes: Record<string, number> = {};
     let total = 0;
     sizes.forEach((s) => {
-      const v = Number(editingDelivery.sizeQuantities[s]);
+      const v = Number(editingDelivery.sizeQuantities[s]) || 0;
       if (v > 0) {
         cleanedSizes[s] = v;
         total += v;
@@ -220,9 +275,67 @@ export const Tab8FinishedGoods: React.FC = () => {
       totalQty: total,
     };
 
-    updateFinishedGoodsDelivery(updated);
+    const key = `${updated.poNumber}__${updated.itemCode}`;
+    const nextInputs: Record<string, number | ''> = {};
+    sizes.forEach((s) => {
+      nextInputs[s] = cleanedSizes[s] || '';
+    });
+    setDeliveredInputs((prev) => ({
+      ...prev,
+      [key]: nextInputs,
+    }));
+
+    const exists = currentCustomerFinishedGoodsDeliveries.some((d) => d.id === updated.id);
+    if (exists) {
+      updateFinishedGoodsDelivery(updated);
+    } else {
+      addFinishedGoodsDelivery(updated);
+    }
+
     toast(`✅ Đã cập nhật phiếu xuất ${updated.deliveryVoucher}!`);
     setEditingDelivery(null);
+  };
+
+  // In phiếu xuất cho PO này
+  const handlePrintDelivery = (item: FinishedGoodsStockItem) => {
+    const existing = currentCustomerFinishedGoodsDeliveries.find(
+      (d) =>
+        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
+        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
+    );
+
+    const currentSq = deliveredInputs[item.key] || getItemDeliveredSizes(item);
+    const cleanedSizes: Record<string, number> = {};
+    let total = 0;
+    sizes.forEach((s) => {
+      const v = typeof currentSq[s] === 'number' ? Number(currentSq[s]) : 0;
+      if (v > 0) {
+        cleanedSizes[s] = v;
+        total += v;
+      }
+    });
+
+    if (total <= 0) {
+      alert('Chưa có số lượng xuất nào để in phiếu.');
+      return;
+    }
+
+    const delObj: FinishedGoodsDeliveryRow = existing || {
+      id: `fg-del-print-${Date.now()}`,
+      customerId: currentCustomer?.id || '',
+      deliveryDate: defaultDate,
+      poNumber: item.poNumber,
+      itemCode: item.itemCode,
+      deliveryVoucher: `XKTP-${item.poNumber}`,
+      receiver: currentCustomer?.name || 'Khách hàng',
+      unit: item.unit,
+      sizeQuantities: cleanedSizes,
+      totalQty: total,
+      note: 'Xuất giao thành phẩm cho khách hàng',
+      createdAt: new Date().toISOString(),
+    };
+
+    setSelectedForPrint(delObj);
   };
 
   // Danh sách tồn kho thành phẩm đã lọc
@@ -236,20 +349,6 @@ export const Tab8FinishedGoods: React.FC = () => {
       );
     });
   }, [currentCustomerFinishedGoodsStock, searchQuery]);
-
-  // Danh sách phiếu xuất thành phẩm đã lọc
-  const filteredDeliveries = useMemo(() => {
-    return currentCustomerFinishedGoodsDeliveries.filter((d) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        d.poNumber.toLowerCase().includes(q) ||
-        d.itemCode.toLowerCase().includes(q) ||
-        d.deliveryVoucher.toLowerCase().includes(q) ||
-        d.receiver.toLowerCase().includes(q)
-      );
-    });
-  }, [currentCustomerFinishedGoodsDeliveries, searchQuery]);
 
   // Xuất Excel Tồn Kho Thành Phẩm
   const handleExportStockExcel = () => {
@@ -270,7 +369,14 @@ export const Tab8FinishedGoods: React.FC = () => {
 
     const dataRows: any[] = [];
     filteredStock.forEach((item, idx) => {
-      // Dòng 1: Đã nhập kho từ chuyền
+      const deliveredSizes = getItemDeliveredSizes(item);
+      const deliveredTotal = sizes.reduce((sum, s) => {
+        const v = deliveredSizes[s];
+        return sum + (typeof v === 'number' ? v : 0);
+      }, 0);
+
+      const stockTotal = item.totalInbound - deliveredTotal;
+
       dataRows.push([
         idx + 1,
         item.poNumber,
@@ -281,26 +387,28 @@ export const Tab8FinishedGoods: React.FC = () => {
         item.totalInbound,
       ]);
 
-      // Dòng 2: Đã xuất giao KH
       dataRows.push([
         '',
         '',
         '',
         '',
         '2. Đã xuất giao KH',
-        ...sizes.map((s) => item.deliveredSizes[s] || 0),
-        item.totalDelivered,
+        ...sizes.map((s) => (typeof deliveredSizes[s] === 'number' ? deliveredSizes[s] : 0)),
+        deliveredTotal,
       ]);
 
-      // Dòng 3: Tồn kho hiện tại
       dataRows.push([
         '',
         '',
         '',
         '',
-        '3. TỒN KHO THÀNH PHẨM',
-        ...sizes.map((s) => item.stockSizes[s] || 0),
-        item.totalStock,
+        '3. TỒN KHO THÀNH PHẨM HIỆN TẠI',
+        ...sizes.map((s) => {
+          const inQ = item.inboundSizes[s] || 0;
+          const outQ = typeof deliveredSizes[s] === 'number' ? Number(deliveredSizes[s]) : 0;
+          return inQ - outQ;
+        }),
+        stockTotal,
       ]);
     });
 
@@ -310,46 +418,7 @@ export const Tab8FinishedGoods: React.FC = () => {
     XLSX.writeFile(wb, `TonKhoThanhPham_${currentCustomer?.name || 'KhachHang'}.xlsx`);
   };
 
-  // Xuất Excel Sổ Xuất Kho Thành Phẩm
-  const handleExportDeliveriesExcel = () => {
-    if (filteredDeliveries.length === 0) {
-      alert('Không có dữ liệu phiếu xuất thành phẩm để xuất Excel.');
-      return;
-    }
-
-    const headers = [
-      'STT',
-      'Ngày Xuất Giao',
-      'Số Phiếu Xuất (Delivery Note)',
-      'Mã PO',
-      'Mã Hàng',
-      'Người Nhận / Khách Hàng',
-      'ĐVT',
-      ...sizes.map((s) => `Size ${s}`),
-      'Tổng SL Xuất',
-      'Ghi Chú',
-    ];
-
-    const dataRows = filteredDeliveries.map((del, idx) => [
-      idx + 1,
-      del.deliveryDate,
-      del.deliveryVoucher,
-      del.poNumber,
-      del.itemCode,
-      del.receiver,
-      del.unit,
-      ...sizes.map((s) => del.sizeQuantities[s] || 0),
-      del.totalQty,
-      del.note || '',
-    ]);
-
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'SoXuatKhoThanhPham');
-    XLSX.writeFile(wb, `SoXuatKhoThanhPham_${currentCustomer?.name || 'KhachHang'}.xlsx`);
-  };
-
-  // Dữ liệu in cho 1 phiếu xuất được chọn
+  // Dữ liệu in cho phiếu xuất được chọn
   const printDeliveryRows: PrintTableRow[] = useMemo(() => {
     if (!selectedForPrint) return [];
     return [
@@ -370,24 +439,39 @@ export const Tab8FinishedGoods: React.FC = () => {
 
   // Dữ liệu in báo cáo tồn kho thành phẩm
   const printStockRows: PrintTableRow[] = useMemo(() => {
-    return filteredStock.map((item, idx) => ({
-      stt: idx + 1,
-      date: defaultDate,
-      voucherCode: 'TKTP-LONGAN',
-      poNumber: item.poNumber,
-      code: item.itemCode,
-      description: `Tồn kho thành phẩm (${item.totalInbound} nhập - ${item.totalDelivered} xuất)`,
-      unit: item.unit,
-      sizeQuantities: item.stockSizes,
-      totalQty: item.totalStock,
-      note: item.totalStock > 0 ? 'Còn hàng trong kho' : 'Đã xuất hết',
-    }));
-  }, [filteredStock, defaultDate]);
+    return filteredStock.map((item, idx) => {
+      const deliveredSizes = getItemDeliveredSizes(item);
+      const stockSizes: Record<string, number> = {};
+      let totalStock = 0;
+
+      sizes.forEach((s) => {
+        const inQ = item.inboundSizes[s] || 0;
+        const outQ = typeof deliveredSizes[s] === 'number' ? Number(deliveredSizes[s]) : 0;
+        const st = inQ - outQ;
+        stockSizes[s] = st;
+        totalStock += st;
+      });
+
+      return {
+        stt: idx + 1,
+        date: defaultDate,
+        voucherCode: 'TKTP-LONGAN',
+        poNumber: item.poNumber,
+        code: item.itemCode,
+        description: `Tồn kho thành phẩm (${item.totalInbound} nhập - ${item.totalInbound - totalStock} xuất)`,
+        unit: item.unit,
+        sizeQuantities: stockSizes,
+        totalQty: totalStock,
+        note: totalStock > 0 ? 'Còn hàng trong kho' : 'Đã xuất hết',
+      };
+    });
+  }, [filteredStock, defaultDate, sizes, deliveredInputs]);
 
   return (
     <div className="space-y-4">
-      {/* Top Banner */}
+      {/* Excel Sheet Container */}
       <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
+        {/* Top Header & Toolbar (Đã bỏ nút + LẬP PHIẾU XUẤT GIAO TP và các subtab phụ) */}
         <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
@@ -395,149 +479,92 @@ export const Tab8FinishedGoods: React.FC = () => {
               <span>TAB 8: KHO &amp; XUẤT THÀNH PHẨM (FINISHED GOODS)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
-              | Tồn kho tự động đọc từ Báo cáo nghiệm thu Tab 7 &amp; Lập phiếu xuất giao hàng khách hàng
+              | Nhập trực tiếp số lượng xuất tại dòng 2, nhấn Enter để lưu • Tồn kho tự động tính toán tức thời
             </span>
           </div>
 
           <div className="flex items-center flex-wrap gap-1.5">
+            <div className="relative w-40 sm:w-52">
+              <input
+                type="text"
+                placeholder="Tìm PO, mã hàng..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-white"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
+            </div>
+
             <button
               type="button"
-              onClick={() => setActiveSubTab('DELIVERY')}
-              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow-xs transition cursor-pointer"
+              onClick={() => setShowStockPrintModal(true)}
+              disabled={filteredStock.length === 0}
+              className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
             >
-              <Truck className="w-3.5 h-3.5" />
-              <span>+ LẬP PHIẾU XUẤT GIAO TP</span>
+              <Printer className="w-3.5 h-3.5 text-indigo-600" />
+              <span>In Báo Cáo Tồn TP</span>
             </button>
 
-            {activeSubTab === 'STOCK' ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowStockPrintModal(true)}
-                  disabled={filteredStock.length === 0}
-                  className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>In Báo Cáo Tồn TP</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportStockExcel}
-                  disabled={filteredStock.length === 0}
-                  className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Xuất Excel Tồn TP</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleExportDeliveriesExcel}
-                disabled={filteredDeliveries.length === 0}
-                className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Xuất Excel Sổ Xuất TP</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleExportStockExcel}
+              disabled={filteredStock.length === 0}
+              className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition shadow-2xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Xuất Excel Tồn TP</span>
+            </button>
           </div>
         </div>
 
-        {/* Sub-Tab Navigation & Search Toolbar */}
-        <div className="p-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('STOCK')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
-                activeSubTab === 'STOCK'
-                  ? 'bg-slate-800 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-              }`}
-            >
-              <Archive className="w-3.5 h-3.5" />
-              <span>1. Bảng Tồn Kho Thành Phẩm ({filteredStock.length})</span>
-            </button>
+        {/* BẢNG TỒN KHO THÀNH PHẨM HIỆN CÓ (Nhập trực tiếp số xuất trên dòng 2, Enter để lưu) */}
+        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
+              <tr>
+                <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
+                <th className="p-2 border-r border-slate-300 min-w-[110px]">Mã PO</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng (Style)</th>
+                <th className="p-2 border-r border-slate-300 min-w-[50px] text-center">ĐVT</th>
+                <th className="p-2 border-r border-slate-300 min-w-[170px]">Chỉ Số Thành Phẩm</th>
 
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('DELIVERY')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
-                activeSubTab === 'DELIVERY'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>2. Lập Phiếu Xuất Giao Hàng</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('HISTORY')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
-                activeSubTab === 'HISTORY'
-                  ? 'bg-sky-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5" />
-              <span>3. Sổ Nhật Ký Xuất Kho TP ({filteredDeliveries.length})</span>
-            </button>
-          </div>
-
-          <div className="relative w-64">
-            <input
-              type="text"
-              placeholder="Tìm kiếm PO, mã hàng, số phiếu..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
-          </div>
-        </div>
-
-        {/* SUB-TAB 1: BẢNG TỒN KHO THÀNH PHẨM (Tự động đọc từ Tab 7) */}
-        {activeSubTab === 'STOCK' && (
-          <div className="overflow-x-auto max-h-[550px] overflow-y-auto">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
-                <tr>
-                  <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[110px]">Mã PO</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng (Style)</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[50px] text-center">ĐVT</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[160px]">Chỉ Số Thành Phẩm</th>
-
-                  {sizes.map((s) => (
-                    <th
-                      key={s}
-                      className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-emerald-50 text-emerald-950"
-                    >
-                      Size {s}
-                    </th>
-                  ))}
-
-                  <th className="p-2 border-r border-slate-300 min-w-[90px] text-right bg-emerald-100 text-emerald-950 font-bold">
-                    TỔNG CỘNG
+                {sizes.map((s) => (
+                  <th
+                    key={s}
+                    className="p-2 border-r border-slate-300 min-w-[50px] text-center font-mono font-bold bg-emerald-50 text-emerald-950"
+                  >
+                    Size {s}
                   </th>
-                  <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Trạng Thái</th>
-                  <th className="p-2 text-center w-28">Hành Động</th>
+                ))}
+
+                <th className="p-2 border-r border-slate-300 min-w-[90px] text-right bg-emerald-100 text-emerald-950 font-bold">
+                  TỔNG CỘNG
+                </th>
+                <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Trạng Thái</th>
+                <th className="p-2 text-center w-28">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-sans">
+              {filteredStock.length === 0 ? (
+                <tr>
+                  <td colSpan={5 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
+                    Chưa có dữ liệu thành phẩm nào được ghi nhận hoàn thành từ Tab 7 (Báo Cáo Sản Xuất Xong).
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-sans">
-                {filteredStock.length === 0 ? (
-                  <tr>
-                    <td colSpan={5 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
-                      Chưa có dữ liệu thành phẩm nào được ghi nhận hoàn thành từ Tab 7 (Báo Cáo Sản Xuất Xong).
-                    </td>
-                  </tr>
-                ) : (
-                  filteredStock.map((item, idx) => (
+              ) : (
+                filteredStock.map((item, idx) => {
+                  const currentDeliveredSizes = getItemDeliveredSizes(item);
+
+                  const liveTotalDelivered = sizes.reduce((sum, s) => {
+                    const v = currentDeliveredSizes[s];
+                    return sum + (typeof v === 'number' ? v : 0);
+                  }, 0);
+
+                  const liveTotalStock = item.totalInbound - liveTotalDelivered;
+
+                  return (
                     <React.Fragment key={item.key}>
-                      {/* Dòng 1: Nhập kho TP từ các Chuyền */}
+                      {/* Dòng 1: Nhập kho TP từ các Chuyền (Đọc tự động từ Tab 7) */}
                       <tr className="bg-slate-50/70 hover:bg-slate-100/80 transition-colors">
                         <td
                           rowSpan={3}
@@ -582,46 +609,110 @@ export const Tab8FinishedGoods: React.FC = () => {
                         </td>
                         <td
                           rowSpan={3}
-                          className="p-2 text-center align-middle bg-white border-l border-slate-200 whitespace-nowrap"
+                          className="p-2 text-center align-middle bg-white border-l border-slate-300 whitespace-nowrap"
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleSelectStockItem(item.key);
-                              setActiveSubTab('DELIVERY');
-                            }}
-                            disabled={item.totalStock <= 0}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded shadow-2xs transition cursor-pointer"
-                            title="Lập phiếu xuất giao thành phẩm cho PO này"
-                          >
-                            <Truck className="w-3.5 h-3.5" />
-                            <span>Xuất Giao</span>
-                          </button>
+                          <div className="flex flex-col items-center justify-center gap-1">
+                            {/* Nút Lưu Số Xuất (Enter) */}
+                            <button
+                              type="button"
+                              onClick={() => handleSaveOutbound(item)}
+                              className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded shadow-2xs transition cursor-pointer"
+                              title="Lưu số lượng xuất kho cho đơn hàng này (hoặc nhấn Enter tại ô nhập)"
+                            >
+                              <Save className="w-3 h-3" />
+                              <span>Lưu Xuất</span>
+                            </button>
+
+                            <div className="flex items-center justify-center gap-1 w-full pt-0.5">
+                              {/* Nút In Phiếu */}
+                              <button
+                                type="button"
+                                onClick={() => handlePrintDelivery(item)}
+                                disabled={liveTotalDelivered <= 0}
+                                className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30 rounded hover:bg-indigo-50 transition cursor-pointer"
+                                title="In phiếu xuất kho thành phẩm"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Nút Sửa chi tiết */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(item)}
+                                className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                                title="Chỉnh sửa thông tin phiếu xuất (Ngày, số phiếu, người nhận...)"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Nút Xóa / Hủy số lượng đã xuất */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteOutbound(item)}
+                                disabled={liveTotalDelivered <= 0}
+                                className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 rounded hover:bg-rose-50 transition cursor-pointer"
+                                title="Xóa/hủy xuất để hoàn trả lại tồn kho thành phẩm"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         </td>
                       </tr>
 
-                      {/* Dòng 2: Đã xuất giao cho khách */}
-                      <tr className="bg-white hover:bg-slate-50 transition-colors">
-                        <td className="p-2 border-r border-slate-200 font-medium text-amber-800 flex items-center gap-1.5">
+                      {/* Dòng 2: ĐÃ XUẤT GIAO KHÁCH HÀNG (Nhập số trực tiếp trên ô, hỗ trợ paste và nhấn Enter lưu ngay) */}
+                      <tr className="bg-[#fffbeb] hover:bg-[#fef3c7] transition-colors border-y border-amber-200">
+                        <td className="p-2 border-r border-slate-200 font-bold text-amber-900 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
                           <span>2. Đã xuất giao Khách hàng</span>
                         </td>
 
-                        {sizes.map((s) => (
-                          <td key={s} className="p-2 border-r border-slate-200 text-center font-mono text-amber-700">
-                            {item.deliveredSizes[s] > 0 ? item.deliveredSizes[s].toLocaleString('vi-VN') : '-'}
-                          </td>
-                        ))}
+                        {sizes.map((s) => {
+                          const val = currentDeliveredSizes[s];
+                          const inbound = item.inboundSizes[s] || 0;
+                          const isOver = typeof val === 'number' && val > inbound;
 
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-amber-700">
-                          {item.totalDelivered.toLocaleString('vi-VN')}
+                          return (
+                            <td
+                              key={s}
+                              className={`p-0 border-r border-slate-200 ${
+                                isOver ? 'bg-rose-100 ring-1 ring-rose-400' : ''
+                              }`}
+                            >
+                              <input
+                                type="number"
+                                min="0"
+                                max={inbound}
+                                value={val ?? ''}
+                                onChange={(e) => handleUpdateItemSize(item.key, s, e.target.value, item)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSaveOutbound(item);
+                                  }
+                                }}
+                                onPaste={(e) => handleSizePaste(e, item.key, s, item)}
+                                placeholder="-"
+                                className={`w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white focus:outline-none focus:ring-1 ${
+                                  isOver
+                                    ? 'text-rose-700 focus:ring-rose-500 border border-rose-400'
+                                    : 'text-amber-900 focus:ring-amber-500 border border-amber-200 hover:border-amber-400'
+                                }`}
+                                title={`Nhập số lượng xuất Size ${s} (Tồn nhập: ${inbound}). Nhấn Enter để lưu.`}
+                              />
+                            </td>
+                          );
+                        })}
+
+                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-amber-900 bg-amber-100">
+                          {liveTotalDelivered > 0 ? liveTotalDelivered.toLocaleString('vi-VN') : '-'}
                         </td>
-                        <td className="p-2 border-r border-slate-200 text-center text-[10px] font-semibold text-amber-700">
-                          Đã giao
+                        <td className="p-2 border-r border-slate-200 text-center text-[10px] font-bold text-amber-800">
+                          {liveTotalDelivered > 0 ? 'Đã xuất' : 'Chưa xuất'}
                         </td>
                       </tr>
 
-                      {/* Dòng 3: TỒN KHO THÀNH PHẨM HIỆN TẠI */}
+                      {/* Dòng 3: TỒN KHO THÀNH PHẨM HIỆN TẠI (Tự động tính = Nhập kho - Đã xuất) */}
                       <tr className="bg-emerald-50/60 font-bold border-b-2 border-slate-300">
                         <td className="p-2 border-r border-slate-200 text-emerald-950 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
                           <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
@@ -629,28 +720,37 @@ export const Tab8FinishedGoods: React.FC = () => {
                         </td>
 
                         {sizes.map((s) => {
-                          const st = item.stockSizes[s] || 0;
+                          const inQ = item.inboundSizes[s] || 0;
+                          const outQ = typeof currentDeliveredSizes[s] === 'number' ? Number(currentDeliveredSizes[s]) : 0;
+                          const st = inQ - outQ;
+
                           return (
                             <td
                               key={s}
                               className={`p-2 border-r border-slate-200 text-center font-mono text-xs ${
                                 st > 0
-                                  ? 'text-emerald-900 bg-emerald-100/60 font-bold'
+                                  ? 'text-emerald-900 bg-emerald-100/70 font-bold'
+                                  : st < 0
+                                  ? 'text-rose-700 bg-rose-100 font-bold'
                                   : 'text-slate-400 font-normal'
                               }`}
                             >
-                              {st > 0 ? st.toLocaleString('vi-VN') : '0'}
+                              {st}
                             </td>
                           );
                         })}
 
                         <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs text-emerald-950 bg-emerald-100">
-                          {item.totalStock.toLocaleString('vi-VN')}
+                          {liveTotalStock.toLocaleString('vi-VN')}
                         </td>
                         <td className="p-2 border-r border-slate-200 text-center">
-                          {item.totalStock > 0 ? (
+                          {liveTotalStock > 0 ? (
                             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                               Khả dụng
+                            </span>
+                          ) : liveTotalStock < 0 ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                              Xuất vượt
                             </span>
                           ) : (
                             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">
@@ -660,381 +760,25 @@ export const Tab8FinishedGoods: React.FC = () => {
                         </td>
                       </tr>
                     </React.Fragment>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer Note */}
+        <div className="p-2.5 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500">
+          <div className="text-[11px] flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span>
+              <strong>Hướng dẫn:</strong> Gõ số lượng xuất trực tiếp vào <strong>Dòng 2 (Đã xuất giao Khách hàng)</strong> rồi nhấn <strong>Enter</strong> để lưu ngay. Dòng 3 (Tồn kho TP) sẽ tự động trừ lùi theo thời gian thực!
+            </span>
           </div>
-        )}
-
-        {/* SUB-TAB 2: LẬP PHIẾU XUẤT GIAO THÀNH PHẨM (Form nhập nhanh, Enter để lưu) */}
-        {activeSubTab === 'DELIVERY' && (
-          <div className="p-4 bg-white">
-            <form onSubmit={handleSaveDelivery} className="max-w-4xl mx-auto space-y-4">
-              <div className="bg-emerald-50/50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
-                    <Truck className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
-                      LẬP PHIẾU XUẤT KHO THÀNH PHẨM GỬI KHÁCH HÀNG
-                    </h4>
-                    <p className="text-[11px] text-emerald-700">
-                      Chọn đơn hàng có tồn kho thành phẩm, nhập số lượng xuất theo size và nhấn Enter để lưu ngay.
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-[11px] text-slate-500 block">Tổng SL xuất đợt này</span>
-                  <span className="text-sm font-bold font-mono text-emerald-800">
-                    {draftTotalQty.toLocaleString('vi-VN')} {draftForm.unit}
-                  </span>
-                </div>
-              </div>
-
-              {/* Thông tin chung của phiếu xuất */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Chọn Mã PO / Mã Hàng <span className="text-rose-600">*</span>
-                  </label>
-                  <select
-                    value={`${draftForm.poNumber}__${draftForm.itemCode}`}
-                    onChange={(e) => handleSelectStockItem(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded p-2 bg-white focus:ring-1 focus:ring-emerald-500 font-mono font-bold text-slate-800"
-                  >
-                    {currentCustomerFinishedGoodsStock.map((st) => (
-                      <option key={st.key} value={st.key}>
-                        {st.poNumber} - {st.itemCode} (Tồn: {st.totalStock})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Ngày xuất giao <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={draftForm.deliveryDate}
-                    onChange={(e) => setDraftForm({ ...draftForm, deliveryDate: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleSaveDelivery();
-                      }
-                    }}
-                    placeholder="VD: 12/09/2026"
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-emerald-500 font-mono bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Số phiếu xuất (Voucher) <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={draftForm.deliveryVoucher}
-                    onChange={(e) => setDraftForm({ ...draftForm, deliveryVoucher: e.target.value.toUpperCase() })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleSaveDelivery();
-                      }
-                    }}
-                    placeholder="VD: XKTP-0926-001"
-                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-emerald-500 font-mono font-bold bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Người / Đơn vị nhận hàng
-                  </label>
-                  <input
-                    type="text"
-                    value={draftForm.receiver}
-                    onChange={(e) => setDraftForm({ ...draftForm, receiver: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleSaveDelivery();
-                      }
-                    }}
-                    placeholder="Tên đối tác / Kho nhận"
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-emerald-500 bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Ma trận size xuất kho */}
-              <div className="border border-slate-200 rounded-lg p-3.5 bg-white space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                    <span>Nhập số lượng xuất theo Size</span>
-                    <span className="text-[11px] font-normal text-slate-500">(nhấn Enter để lưu ngay)</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const fullStock: Record<string, number | ''> = {};
-                      sizes.forEach((s) => {
-                        const avail = getAvailableFinishedStock(draftForm.poNumber, draftForm.itemCode, s);
-                        fullStock[s] = avail > 0 ? avail : '';
-                      });
-                      setDraftForm((prev) => ({ ...prev, sizeQuantities: fullStock }));
-                    }}
-                    className="text-xs font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
-                  >
-                    Điền xuất hết toàn bộ tồn kho
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2.5">
-                  {sizes.map((s) => {
-                    const avail = getAvailableFinishedStock(draftForm.poNumber, draftForm.itemCode, s);
-                    const currentVal = draftForm.sizeQuantities[s];
-                    const isOver = typeof currentVal === 'number' && currentVal > avail;
-
-                    return (
-                      <div
-                        key={s}
-                        className={`border rounded-lg p-2 text-center transition ${
-                          isOver
-                            ? 'bg-rose-50 border-rose-400 ring-1 ring-rose-400'
-                            : avail > 0
-                            ? 'bg-emerald-50/40 border-emerald-200'
-                            : 'bg-slate-50 border-slate-200'
-                        }`}
-                      >
-                        <div className="text-[11px] font-bold text-slate-700">Size {s}</div>
-                        <div className="text-[10px] text-slate-500 mb-1 font-mono">
-                          Tồn: <strong className={avail > 0 ? 'text-emerald-700' : 'text-slate-400'}>{avail}</strong>
-                        </div>
-                        <input
-                          type="number"
-                          min="0"
-                          max={avail}
-                          value={currentVal ?? ''}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleSaveDelivery();
-                            }
-                          }}
-                          onChange={(e) => {
-                            const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
-                            setDraftForm((prev) => ({
-                              ...prev,
-                              sizeQuantities: {
-                                ...prev.sizeQuantities,
-                                [s]: val,
-                              },
-                            }));
-                          }}
-                          onPaste={(e) => {
-                            const clip = e.clipboardData.getData('text');
-                            if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
-                            const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
-                            if (parts.length > 1) {
-                              e.preventDefault();
-                              const startIdx = sizes.indexOf(s);
-                              setDraftForm((prev) => {
-                                const nextSq = { ...prev.sizeQuantities };
-                                parts.forEach((p, offset) => {
-                                  const targetIdx = startIdx + offset;
-                                  if (targetIdx < sizes.length) {
-                                    const targetSize = sizes[targetIdx];
-                                    const num = parseInt(p.replace(/,/g, ''), 10);
-                                    nextSq[targetSize] = isNaN(num) ? '' : Math.max(0, num);
-                                  }
-                                });
-                                return { ...prev, sizeQuantities: nextSq };
-                              });
-                              toast(`📋 Đã dán ${parts.length} số lượng size bắt đầu từ Size ${s}!`);
-                            }
-                          }}
-                          className={`w-full text-center text-xs font-mono font-bold border rounded py-1.5 focus:outline-none focus:ring-1 ${
-                            isOver
-                              ? 'border-rose-500 text-rose-700 bg-white focus:ring-rose-500'
-                              : 'border-slate-300 text-slate-900 bg-white focus:ring-emerald-500 focus:border-emerald-500'
-                          }`}
-                          placeholder="0"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Ghi chú & Buttons */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-                <div className="w-full sm:w-1/2">
-                  <input
-                    type="text"
-                    value={draftForm.note}
-                    onChange={(e) => setDraftForm({ ...draftForm, note: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleSaveDelivery();
-                      }
-                    }}
-                    placeholder="Ghi chú đợt xuất giao thành phẩm..."
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-emerald-500 bg-white"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubTab('STOCK')}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
-                  >
-                    QUAY LẠI TỒN KHO
-                  </button>
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-1.5 px-6 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>LƯU &amp; XUẤT KHO THÀNH PHẨM (Enter)</span>
-                  </button>
-                </div>
-              </div>
-            </form>
+          <div className="text-[11px] text-slate-600">
+            Tổng cộng: <strong>{filteredStock.length}</strong> đơn hàng thành phẩm
           </div>
-        )}
-
-        {/* SUB-TAB 3: SỔ NHẬT KÝ CÁC ĐỢT XUẤT KHO THÀNH PHẨM (Có nút Sửa & Xóa trên mọi dòng) */}
-        {activeSubTab === 'HISTORY' && (
-          <div className="overflow-x-auto max-h-[550px] overflow-y-auto">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
-                <tr>
-                  <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[85px]">Ngày Xuất</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[120px]">Số Phiếu XK</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[115px]">Mã Hàng</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[120px]">Người Nhận</th>
-
-                  {sizes.map((s) => (
-                    <th
-                      key={s}
-                      className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-amber-50 text-amber-950"
-                    >
-                      Size {s}
-                    </th>
-                  ))}
-
-                  <th className="p-2 border-r border-slate-300 min-w-[85px] text-right bg-amber-100 text-amber-950 font-bold">
-                    TỔNG XUẤT
-                  </th>
-                  <th className="p-2 border-r border-slate-300 min-w-[140px]">Ghi Chú</th>
-                  <th className="p-2 text-center w-28">Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-sans">
-                {filteredDeliveries.length === 0 ? (
-                  <tr>
-                    <td colSpan={6 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
-                      Chưa có phiếu xuất kho thành phẩm nào được lập.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredDeliveries.map((del, idx) => (
-                    <tr key={del.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
-                        {idx + 1}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 whitespace-nowrap font-mono text-slate-700">
-                        {del.deliveryDate}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 whitespace-nowrap font-mono font-bold text-slate-900">
-                        {del.deliveryVoucher}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 whitespace-nowrap font-mono font-bold text-sky-700">
-                        {del.poNumber}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 whitespace-nowrap font-mono font-bold text-slate-800">
-                        {del.itemCode}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 text-slate-700">
-                        {del.receiver}
-                      </td>
-
-                      {sizes.map((s) => {
-                        const q = del.sizeQuantities[s] || 0;
-                        return (
-                          <td
-                            key={s}
-                            className={`p-2 border-r border-slate-200 text-center font-mono ${
-                              q > 0 ? 'text-amber-800 font-bold bg-amber-50/50' : 'text-slate-300'
-                            }`}
-                          >
-                            {q > 0 ? q.toLocaleString('vi-VN') : '-'}
-                          </td>
-                        );
-                      })}
-
-                      <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-amber-50 text-amber-950">
-                        {del.totalQty.toLocaleString('vi-VN')}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 text-slate-600 text-[11px] truncate max-w-[150px]">
-                        {del.note || '-'}
-                      </td>
-
-                      {/* Nút Sửa, Xóa và In Phiếu Giao Hàng trên mọi dòng */}
-                      <td className="p-1.5 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedForPrint(del)}
-                            className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-[11px] font-semibold px-2 py-1 rounded transition shadow-2xs cursor-pointer"
-                            title="In phiếu xuất kho thành phẩm giao khách hàng"
-                          >
-                            <Printer className="w-3 h-3 text-indigo-600" />
-                            <span>In Phiếu</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setEditingDelivery({ ...del, sizeQuantities: { ...del.sizeQuantities } })}
-                            className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
-                            title="Chỉnh sửa phiếu xuất"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              confirm(`Bạn có chắc chắn muốn xóa phiếu xuất ${del.deliveryVoucher} (${del.totalQty} đôi)?
-Số lượng này sẽ tự động được hoàn trả lại vào Tồn Kho Thành Phẩm!`, () => {
-                                deleteFinishedGoodsDelivery(del.id);
-                                toast(`Đã xóa phiếu xuất ${del.deliveryVoucher}`);
-                              });
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
-                            title="Xóa phiếu xuất"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* MODAL IN PHIẾU XUẤT KHO THÀNH PHẨM (DELIVERY NOTE) */}
@@ -1062,7 +806,7 @@ Số lượng này sẽ tự động được hoàn trả lại vào Tồn Kho T
         rows={printStockRows}
       />
 
-      {/* MODAL CHỈNH SỬA PHIẾU XUẤT THÀNH PHẨM (Hỗ trợ nhấn Enter để lưu) */}
+      {/* MODAL CHỈNH SỬA THÔNG TIN CHỨNG TỪ XUẤT THÀNH PHẨM */}
       {editingDelivery && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-2xl w-full p-5 space-y-4">
@@ -1073,7 +817,7 @@ Số lượng này sẽ tự động được hoàn trả lại vào Tồn Kho T
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">
-                    CHỈNH SỬA PHIẾU XUẤT KHO THÀNH PHẨM
+                    CHỈNH SỬA THÔNG TIN PHIẾU XUẤT KHO THÀNH PHẨM
                   </h4>
                   <p className="text-xs text-slate-500">
                     Số phiếu: <strong className="text-slate-800 font-mono">{editingDelivery.deliveryVoucher}</strong> • Mã PO:{' '}
@@ -1191,7 +935,7 @@ Số lượng này sẽ tự động được hoàn trả lại vào Tồn Kho T
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded shadow-xs transition cursor-pointer"
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs transition cursor-pointer font-bold"
                 >
                   LƯU THAY ĐỔI (Enter)
                 </button>
