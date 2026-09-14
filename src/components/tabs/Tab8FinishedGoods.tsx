@@ -9,10 +9,8 @@ import {
   Search,
   Trash2,
   Edit,
-  X,
   Save,
   CheckCircle2,
-  AlertCircle,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
@@ -41,7 +39,9 @@ export const Tab8FinishedGoods: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedForPrint, setSelectedForPrint] = useState<FinishedGoodsDeliveryRow | null>(null);
   const [showStockPrintModal, setShowStockPrintModal] = useState(false);
-  const [editingDelivery, setEditingDelivery] = useState<FinishedGoodsDeliveryRow | null>(null);
+
+  // State quản lý trạng thái mở khóa sửa (in-place unlock) theo từng SKU
+  const [editingKeys, setEditingKeys] = useState<Record<string, boolean>>({});
 
   // Local state lưu trữ số lượng xuất đang nhập trực tiếp trên dòng 2 của bảng (theo item.key)
   const [deliveredInputs, setDeliveredInputs] = useState<Record<string, Record<string, number | ''>>>({});
@@ -57,6 +57,18 @@ export const Tab8FinishedGoods: React.FC = () => {
       init[s] = savedVal > 0 ? savedVal : '';
     });
     return init;
+  };
+
+  const isRowEditing = (item: FinishedGoodsStockItem): boolean => {
+    if (typeof editingKeys[item.key] === 'boolean') {
+      return editingKeys[item.key];
+    }
+    // Nếu chưa có số lượng xuất nào thì mặc định mở khóa để nhập
+    return item.totalDelivered === 0;
+  };
+
+  const handleStartEdit = (key: string) => {
+    setEditingKeys((prev) => ({ ...prev, [key]: true }));
   };
 
   const handleUpdateItemSize = (itemKey: string, size: string, val: string, currentItem: FinishedGoodsStockItem) => {
@@ -105,7 +117,7 @@ export const Tab8FinishedGoods: React.FC = () => {
     }
   };
 
-  // Lưu số lượng xuất trực tiếp cho 1 PO/SKU (Enter hoặc bấm nút Lưu)
+  // Lưu số lượng xuất trực tiếp cho 1 PO/SKU và KHÓA DÒNG TẠI CHỖ (Không mở popup form)
   const handleSaveOutbound = (item: FinishedGoodsStockItem) => {
     if (!currentCustomer) return;
 
@@ -143,7 +155,6 @@ export const Tab8FinishedGoods: React.FC = () => {
       return;
     }
 
-    // Kiểm tra xem đã có phiếu xuất nào cho PO & Item này chưa
     const existingDelivery = currentCustomerFinishedGoodsDeliveries.find(
       (d) =>
         d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
@@ -157,7 +168,6 @@ export const Tab8FinishedGoods: React.FC = () => {
         totalQty: total,
       };
       updateFinishedGoodsDelivery(updated);
-      toast(`✅ Đã cập nhật số lượng xuất giao cho PO ${item.poNumber} (${total.toLocaleString('vi-VN')} đôi)!`);
     } else {
       const newDelivery: FinishedGoodsDeliveryRow = {
         id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -174,8 +184,11 @@ export const Tab8FinishedGoods: React.FC = () => {
         createdAt: new Date().toISOString(),
       };
       addFinishedGoodsDelivery(newDelivery);
-      toast(`✅ Đã ghi nhận xuất giao cho PO ${item.poNumber} (${total.toLocaleString('vi-VN')} đôi)!`);
     }
+
+    // KHÓA DÒNG TẠI CHỖ
+    setEditingKeys((prev) => ({ ...prev, [item.key]: false }));
+    toast(`🔒 Đã lưu & khóa số lượng xuất PO ${item.poNumber} (${total.toLocaleString('vi-VN')} đôi)! Nhấn Sửa ✏️ để mở khóa sửa lại.`);
   };
 
   // Xóa / Hủy số lượng đã xuất cho 1 PO/SKU
@@ -203,97 +216,10 @@ export const Tab8FinishedGoods: React.FC = () => {
           ...prev,
           [item.key]: emptySq,
         }));
+        setEditingKeys((prev) => ({ ...prev, [item.key]: true }));
         toast(`Đã xóa số lượng xuất của PO ${item.poNumber}. Tồn kho thành phẩm đã được phục hồi!`);
       }
     );
-  };
-
-  // Mở modal sửa thông tin chứng từ xuất (Ngày, số phiếu, người nhận, ghi chú)
-  const handleOpenEditModal = (item: FinishedGoodsStockItem) => {
-    const existingDelivery = currentCustomerFinishedGoodsDeliveries.find(
-      (d) =>
-        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
-        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
-    );
-
-    const currentSq = deliveredInputs[item.key] || getItemDeliveredSizes(item);
-    const cleanedSizes: Record<string, number> = {};
-    sizes.forEach((s) => {
-      const v = typeof currentSq[s] === 'number' ? Number(currentSq[s]) : 0;
-      if (v > 0) cleanedSizes[s] = v;
-    });
-
-    if (existingDelivery) {
-      setEditingDelivery({
-        ...existingDelivery,
-        sizeQuantities: Object.keys(cleanedSizes).length > 0 ? cleanedSizes : existingDelivery.sizeQuantities,
-      });
-    } else {
-      setEditingDelivery({
-        id: `fg-del-${Date.now()}`,
-        customerId: currentCustomer?.id || '',
-        deliveryDate: defaultDate,
-        poNumber: item.poNumber,
-        itemCode: item.itemCode,
-        deliveryVoucher: `XKTP-${item.poNumber}`,
-        receiver: currentCustomer?.name || 'Khách hàng',
-        unit: item.unit || 'PRS',
-        sizeQuantities: cleanedSizes,
-        totalQty: Object.values(cleanedSizes).reduce((a, b) => a + b, 0),
-        note: 'Xuất giao thành phẩm cho khách hàng',
-        createdAt: new Date().toISOString(),
-      });
-    }
-  };
-
-  // Cập nhật phiếu xuất từ modal
-  const handleSaveEditDelivery = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingDelivery) return;
-
-    const cleanedSizes: Record<string, number> = {};
-    let total = 0;
-    sizes.forEach((s) => {
-      const v = Number(editingDelivery.sizeQuantities[s]) || 0;
-      if (v > 0) {
-        cleanedSizes[s] = v;
-        total += v;
-      }
-    });
-
-    if (total <= 0) {
-      alert('Vui lòng nhập số lượng xuất cho ít nhất một size.');
-      return;
-    }
-
-    const updated: FinishedGoodsDeliveryRow = {
-      ...editingDelivery,
-      poNumber: editingDelivery.poNumber.trim().toUpperCase(),
-      itemCode: editingDelivery.itemCode.trim().toUpperCase(),
-      deliveryVoucher: editingDelivery.deliveryVoucher.trim().toUpperCase(),
-      sizeQuantities: cleanedSizes,
-      totalQty: total,
-    };
-
-    const key = `${updated.poNumber}__${updated.itemCode}`;
-    const nextInputs: Record<string, number | ''> = {};
-    sizes.forEach((s) => {
-      nextInputs[s] = cleanedSizes[s] || '';
-    });
-    setDeliveredInputs((prev) => ({
-      ...prev,
-      [key]: nextInputs,
-    }));
-
-    const exists = currentCustomerFinishedGoodsDeliveries.some((d) => d.id === updated.id);
-    if (exists) {
-      updateFinishedGoodsDelivery(updated);
-    } else {
-      addFinishedGoodsDelivery(updated);
-    }
-
-    toast(`✅ Đã cập nhật phiếu xuất ${updated.deliveryVoucher}!`);
-    setEditingDelivery(null);
   };
 
   // In phiếu xuất cho PO này
@@ -469,9 +395,9 @@ export const Tab8FinishedGoods: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* Excel Sheet Container */}
+      {/* Khung Bảng Excel Duy Nhất */}
       <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
-        {/* Top Header & Toolbar (Đã bỏ nút + LẬP PHIẾU XUẤT GIAO TP và các subtab phụ) */}
+        {/* Top Header & Toolbar */}
         <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
@@ -479,7 +405,7 @@ export const Tab8FinishedGoods: React.FC = () => {
               <span>TAB 8: KHO &amp; XUẤT THÀNH PHẨM (FINISHED GOODS)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
-              | Nhập trực tiếp số lượng xuất tại dòng 2, nhấn Enter để lưu • Tồn kho tự động tính toán tức thời
+              | Nhập trực tiếp số lượng xuất tại dòng 2, nhấn Enter để lưu &amp; khóa dòng • Bấm Sửa để mở khóa trực tiếp tại ô
             </span>
           </div>
 
@@ -518,7 +444,7 @@ export const Tab8FinishedGoods: React.FC = () => {
         </div>
 
         {/* BẢNG TỒN KHO THÀNH PHẨM HIỆN CÓ (Nhập trực tiếp số xuất trên dòng 2, Enter để lưu) */}
-        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
               <tr>
@@ -553,6 +479,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                 </tr>
               ) : (
                 filteredStock.map((item, idx) => {
+                  const isEditing = isRowEditing(item);
                   const currentDeliveredSizes = getItemDeliveredSizes(item);
 
                   const liveTotalDelivered = sizes.reduce((sum, s) => {
@@ -561,6 +488,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                   }, 0);
 
                   const liveTotalStock = item.totalInbound - liveTotalDelivered;
+                  const rowStt = idx + 1;
 
                   return (
                     <React.Fragment key={item.key}>
@@ -570,7 +498,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                           rowSpan={3}
                           className="p-2 border-r border-slate-300 text-center text-slate-500 font-mono font-bold bg-white text-xs align-middle"
                         >
-                          {idx + 1}
+                          {rowStt}
                         </td>
                         <td
                           rowSpan={3}
@@ -612,16 +540,27 @@ export const Tab8FinishedGoods: React.FC = () => {
                           className="p-2 text-center align-middle bg-white border-l border-slate-300 whitespace-nowrap"
                         >
                           <div className="flex flex-col items-center justify-center gap-1">
-                            {/* Nút Lưu Số Xuất (Enter) */}
-                            <button
-                              type="button"
-                              onClick={() => handleSaveOutbound(item)}
-                              className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded shadow-2xs transition cursor-pointer"
-                              title="Lưu số lượng xuất kho cho đơn hàng này (hoặc nhấn Enter tại ô nhập)"
-                            >
-                              <Save className="w-3 h-3" />
-                              <span>Lưu Xuất</span>
-                            </button>
+                            {isEditing ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSaveOutbound(item)}
+                                className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded shadow-2xs transition cursor-pointer"
+                                title="Lưu số lượng xuất và khóa dòng (Enter)"
+                              >
+                                <Save className="w-3 h-3" />
+                                <span>Lưu Xuất</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEdit(item.key)}
+                                className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-300 text-[11px] font-bold rounded shadow-2xs transition cursor-pointer"
+                                title="Mở khóa dòng này để sửa trực tiếp trên ô"
+                              >
+                                <Edit className="w-3 h-3" />
+                                <span>Sửa Số Xuất</span>
+                              </button>
+                            )}
 
                             <div className="flex items-center justify-center gap-1 w-full pt-0.5">
                               {/* Nút In Phiếu */}
@@ -633,16 +572,6 @@ export const Tab8FinishedGoods: React.FC = () => {
                                 title="In phiếu xuất kho thành phẩm"
                               >
                                 <Printer className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Nút Sửa chi tiết */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditModal(item)}
-                                className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
-                                title="Chỉnh sửa thông tin phiếu xuất (Ngày, số phiếu, người nhận...)"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
                               </button>
 
                               {/* Nút Xóa / Hủy số lượng đã xuất */}
@@ -660,7 +589,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                         </td>
                       </tr>
 
-                      {/* Dòng 2: ĐÃ XUẤT GIAO KHÁCH HÀNG (Nhập số trực tiếp trên ô, hỗ trợ paste và nhấn Enter lưu ngay) */}
+                      {/* Dòng 2: ĐÃ XUẤT GIAO KHÁCH HÀNG (Sửa trực tiếp tại ô, Enter lưu khóa dòng) */}
                       <tr className="bg-[#fffbeb] hover:bg-[#fef3c7] transition-colors border-y border-amber-200">
                         <td className="p-2 border-r border-slate-200 font-bold text-amber-900 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -679,27 +608,37 @@ export const Tab8FinishedGoods: React.FC = () => {
                                 isOver ? 'bg-rose-100 ring-1 ring-rose-400' : ''
                               }`}
                             >
-                              <input
-                                type="number"
-                                min="0"
-                                max={inbound}
-                                value={val ?? ''}
-                                onChange={(e) => handleUpdateItemSize(item.key, s, e.target.value, item)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleSaveOutbound(item);
-                                  }
-                                }}
-                                onPaste={(e) => handleSizePaste(e, item.key, s, item)}
-                                placeholder="-"
-                                className={`w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white focus:outline-none focus:ring-1 ${
-                                  isOver
-                                    ? 'text-rose-700 focus:ring-rose-500 border border-rose-400'
-                                    : 'text-amber-900 focus:ring-amber-500 border border-amber-200 hover:border-amber-400'
-                                }`}
-                                title={`Nhập số lượng xuất Size ${s} (Tồn nhập: ${inbound}). Nhấn Enter để lưu.`}
-                              />
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={inbound}
+                                  value={val ?? ''}
+                                  onChange={(e) => handleUpdateItemSize(item.key, s, e.target.value, item)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleSaveOutbound(item);
+                                    }
+                                  }}
+                                  onPaste={(e) => handleSizePaste(e, item.key, s, item)}
+                                  placeholder="-"
+                                  className={`w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white focus:outline-none focus:ring-1 ${
+                                    isOver
+                                      ? 'text-rose-700 focus:ring-rose-500 border border-rose-400'
+                                      : 'text-amber-900 focus:ring-amber-500 border border-amber-200 hover:border-amber-400'
+                                  }`}
+                                  title={`Nhập số lượng xuất Size ${s} (Tồn nhập: ${inbound}). Nhấn Enter để lưu.`}
+                                />
+                              ) : (
+                                <div
+                                  className={`p-2 font-mono font-bold text-center ${
+                                    typeof val === 'number' && val > 0 ? 'text-amber-800 bg-amber-50/60' : 'text-slate-300'
+                                  }`}
+                                >
+                                  {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
+                                </div>
+                              )}
                             </td>
                           );
                         })}
@@ -708,7 +647,13 @@ export const Tab8FinishedGoods: React.FC = () => {
                           {liveTotalDelivered > 0 ? liveTotalDelivered.toLocaleString('vi-VN') : '-'}
                         </td>
                         <td className="p-2 border-r border-slate-200 text-center text-[10px] font-bold text-amber-800">
-                          {liveTotalDelivered > 0 ? 'Đã xuất' : 'Chưa xuất'}
+                          {isEditing ? (
+                            <span className="text-sky-700 font-semibold">Đang sửa ô...</span>
+                          ) : liveTotalDelivered > 0 ? (
+                            'Đã khóa xuất'
+                          ) : (
+                            'Chưa xuất'
+                          )}
                         </td>
                       </tr>
 
@@ -772,7 +717,7 @@ export const Tab8FinishedGoods: React.FC = () => {
           <div className="text-[11px] flex items-center gap-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span>
-              <strong>Hướng dẫn:</strong> Gõ số lượng xuất trực tiếp vào <strong>Dòng 2 (Đã xuất giao Khách hàng)</strong> rồi nhấn <strong>Enter</strong> để lưu ngay. Dòng 3 (Tồn kho TP) sẽ tự động trừ lùi theo thời gian thực!
+              💡 <strong>Quy tắc thao tác:</strong> Nhập số lượng xuất trực tiếp vào <strong>Dòng 2 (Đã xuất giao Khách hàng)</strong> rồi nhấn <strong>Enter</strong> để lưu và khóa dòng lại. Khi cần sửa, bấm nút <strong>Sửa Số Xuất ✏️</strong> để mở khóa sửa trực tiếp trên ô, không mở form mới!
             </span>
           </div>
           <div className="text-[11px] text-slate-600">
@@ -805,145 +750,6 @@ export const Tab8FinishedGoods: React.FC = () => {
         sizes={sizes}
         rows={printStockRows}
       />
-
-      {/* MODAL CHỈNH SỬA THÔNG TIN CHỨNG TỪ XUẤT THÀNH PHẨM */}
-      {editingDelivery && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-2xl w-full p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center text-sky-600">
-                  <Edit className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    CHỈNH SỬA THÔNG TIN PHIẾU XUẤT KHO THÀNH PHẨM
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Số phiếu: <strong className="text-slate-800 font-mono">{editingDelivery.deliveryVoucher}</strong> • Mã PO:{' '}
-                    <strong className="text-sky-700 font-mono">{editingDelivery.poNumber}</strong>
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingDelivery(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEditDelivery} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Ngày xuất <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editingDelivery.deliveryDate}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, deliveryDate: e.target.value })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500 font-mono bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Số phiếu xuất <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editingDelivery.deliveryVoucher}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, deliveryVoucher: e.target.value.toUpperCase() })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-sky-500 font-mono font-bold bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Người / Đơn vị nhận
-                  </label>
-                  <input
-                    type="text"
-                    value={editingDelivery.receiver}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, receiver: e.target.value })}
-                    className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500 bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Ma trận size sửa */}
-              <div className="border border-slate-200 rounded-lg p-3 bg-white">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-slate-700 uppercase">
-                    Số lượng xuất theo Size (Nhấn Enter để lưu)
-                  </span>
-                  <span className="text-xs font-bold text-amber-700 font-mono">
-                    Tổng xuất: {sizes.reduce((sum, s) => sum + (Number(editingDelivery.sizeQuantities[s]) || 0), 0)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-9 gap-2">
-                  {sizes.map((s) => (
-                    <div key={s} className="bg-slate-50 border border-slate-200 rounded p-1.5 text-center">
-                      <div className="text-[11px] font-bold text-slate-700 mb-1">Sz {s}</div>
-                      <input
-                        type="number"
-                        min="0"
-                        value={editingDelivery.sizeQuantities[s] ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
-                          setEditingDelivery({
-                            ...editingDelivery,
-                            sizeQuantities: {
-                              ...editingDelivery.sizeQuantities,
-                              [s]: typeof val === 'number' ? val : 0,
-                            },
-                          });
-                        }}
-                        className="w-full text-center text-xs font-mono font-bold border border-slate-300 rounded py-1 focus:ring-1 focus:ring-sky-500 bg-white"
-                        placeholder="0"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Ghi chú */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Ghi chú
-                </label>
-                <input
-                  type="text"
-                  value={editingDelivery.note || ''}
-                  onChange={(e) => setEditingDelivery({ ...editingDelivery, note: e.target.value })}
-                  className="w-full text-xs border border-slate-300 rounded p-2 focus:ring-1 focus:ring-sky-500 bg-white"
-                />
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setEditingDelivery(null)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
-                >
-                  HỦY
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs transition cursor-pointer font-bold"
-                >
-                  LƯU THAY ĐỔI (Enter)
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
