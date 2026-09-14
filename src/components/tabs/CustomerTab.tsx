@@ -28,6 +28,7 @@ interface EditablePoRow {
   sizeQuantities: Record<string, number | ''>;
   note: string;
   isExisting?: boolean;
+  isEditing?: boolean;
 }
 
 export const CustomerTab: React.FC = () => {
@@ -90,6 +91,7 @@ export const CustomerTab: React.FC = () => {
     sizeQuantities: {},
     note: '',
     isExisting: false,
+    isEditing: true, // Dòng mới đang soạn thì mở sẵn ô nhập
   });
 
   const [draftPoRows, setDraftPoRows] = useState<EditablePoRow[]>([]);
@@ -114,6 +116,7 @@ export const CustomerTab: React.FC = () => {
           sizeQuantities: sq,
           note: po.note || '',
           isExisting: true,
+          isEditing: false, // Mặc định đã lưu từ trước -> khóa dòng, bấm cây viết để mở sửa
         };
       });
       // Always append 1 empty row at the bottom for quick entry
@@ -286,6 +289,50 @@ export const CustomerTab: React.FC = () => {
     toast(`📋 Đã dán thành công ${dataMatrix.length} dòng đơn hàng PO từ Excel!`);
   };
 
+  const handleStartEditPoRow = (rIdx: number) => {
+    setDraftPoRows((prev) => {
+      const next = [...prev];
+      next[rIdx] = { ...next[rIdx], isEditing: true };
+      return next;
+    });
+  };
+
+  const handleCancelEditPoRow = (rIdx: number) => {
+    const row = draftPoRows[rIdx];
+    if (row.isExisting) {
+      const orig = currentCustomerPOs.find((p) => p.id === row.id);
+      if (orig) {
+        const sq: Record<string, number | ''> = {};
+        if (orig.sizeQuantities) {
+          Object.entries(orig.sizeQuantities).forEach(([k, v]) => {
+            sq[k] = v;
+          });
+        }
+        setDraftPoRows((prev) => {
+          const next = [...prev];
+          next[rIdx] = {
+            id: orig.id,
+            poNumber: orig.poNumber,
+            style: orig.style,
+            orderDate: orig.orderDate,
+            unit: orig.unit || 'đôi',
+            sizeQuantities: sq,
+            note: orig.note || '',
+            isExisting: true,
+            isEditing: false,
+          };
+          return next;
+        });
+        return;
+      }
+    }
+    setDraftPoRows((prev) => {
+      const next = [...prev];
+      next[rIdx] = { ...next[rIdx], isEditing: false };
+      return next;
+    });
+  };
+
   const handleSaveAllPOs = () => {
     if (!currentCust) return;
     const validRows = draftPoRows.filter((r) => r.poNumber.trim() !== '');
@@ -330,7 +377,40 @@ export const CustomerTab: React.FC = () => {
     });
 
     savePurchaseOrders(toSave);
+
+    // Sau khi lưu: Khóa tất cả các dòng đã có PO và thêm 1 dòng soạn mới ở dưới
+    setDraftPoRows((prev) => {
+      const next = prev.map((r) =>
+        r.poNumber.trim() ? { ...r, isExisting: true, isEditing: false } : r
+      );
+      const hasEmpty = next.some((r) => !r.poNumber.trim());
+      if (!hasEmpty) {
+        next.push(createEmptyPoRow());
+      }
+      return next;
+    });
+
     toast(`✅ Đã lưu thành công ${toSave.length} đơn hàng PO cho đối tác "${currentCust.name}"!`);
+  };
+
+  const handleSaveSinglePoRow = (rIdx: number) => {
+    if (!currentCust) return;
+    const row = draftPoRows[rIdx];
+    const pCode = row.poNumber.trim().toUpperCase();
+    if (!pCode) {
+      alert('Vui lòng nhập Mã PO để lưu!');
+      return;
+    }
+
+    const duplicate = draftPoRows.find(
+      (r, i) => i !== rIdx && r.poNumber.trim().toUpperCase() === pCode
+    );
+    if (duplicate) {
+      alert(`Trùng mã PO "${pCode}". Mỗi mã PO chỉ được có 1 dòng duy nhất!`);
+      return;
+    }
+
+    handleSaveAllPOs();
   };
 
   const handlePoKeyDown = (e: React.KeyboardEvent) => {
@@ -816,14 +896,94 @@ export const CustomerTab: React.FC = () => {
                   Tổng SL KH
                 </th>
                 <th className="p-2.5 border-r border-sky-200 min-w-[130px]">Ghi Chú</th>
-                <th className="p-2.5 text-center min-w-[60px]">Thao Tác</th>
+                <th className="p-2.5 text-center min-w-[85px]">Thao Tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-sky-100 font-sans">
               {draftPoRows.map((row, rIdx) => {
                 const rowTotal = getPoRowTotal(row);
+                const isEditing = row.isEditing ?? !row.isExisting;
+
+                // Dòng ĐÃ LƯU (Khóa dòng, có cây viết để mở sửa)
+                if (!isEditing) {
+                  return (
+                    <tr key={row.id} className="hover:bg-sky-50/60 bg-white transition">
+                      <td className="p-1.5 border-r border-sky-100 text-center font-mono text-slate-400 font-bold bg-sky-50/30">
+                        {rIdx + 1}
+                      </td>
+                      <td className="p-1.5 border-r border-sky-100 font-mono font-bold text-sky-700">
+                        <div className="px-1 py-0.5 truncate" title={row.poNumber}>
+                          {row.poNumber}
+                        </div>
+                      </td>
+                      <td className="p-1.5 border-r border-sky-100 font-semibold text-slate-800">
+                        <div className="px-1 py-0.5 truncate" title={row.style}>
+                          {row.style || '-'}
+                        </div>
+                      </td>
+                      <td className="p-1.5 border-r border-sky-100 text-center font-mono text-slate-700">
+                        <div className="px-1 py-0.5">{row.orderDate || '-'}</div>
+                      </td>
+                      <td className="p-1.5 border-r border-sky-100 text-center text-slate-600">
+                        <div className="px-1 py-0.5">{row.unit || 'đôi'}</div>
+                      </td>
+                      {customerSizes.map((s) => {
+                        const val = row.sizeQuantities[s];
+                        const hasVal = typeof val === 'number' && val > 0;
+                        return (
+                          <td key={s} className="p-1 border-r border-sky-100 text-center font-mono">
+                            <div
+                              className={`px-1 py-1 font-bold text-xs ${
+                                hasVal ? 'text-sky-950 bg-sky-100/60 rounded' : 'text-slate-300'
+                              }`}
+                            >
+                              {hasVal ? val.toLocaleString('vi-VN') : '-'}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="p-1.5 border-r border-sky-100 text-right font-mono font-bold text-sky-900 bg-sky-50/60">
+                        {rowTotal > 0 ? rowTotal.toLocaleString('vi-VN') : '-'}
+                      </td>
+                      <td className="p-1.5 border-r border-sky-100 text-slate-600">
+                        <div className="px-1 py-0.5 text-xs truncate max-w-[140px]" title={row.note}>
+                          {row.note || '-'}
+                        </div>
+                      </td>
+                      <td className="p-1.5 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1">
+                          {/* CÂY VIẾT ĐỂ CHỈNH SỬA TRỰC TIẾP */}
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditPoRow(rIdx)}
+                            className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-100 rounded transition cursor-pointer"
+                            title={`Chỉnh sửa trực tiếp PO "${row.poNumber}"`}
+                          >
+                            <Edit className="w-3.5 h-3.5 text-sky-600" />
+                          </button>
+                          {/* Nút Xóa */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePoRow(rIdx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                            title={`Xóa PO "${row.poNumber}"`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                // Dòng ĐANG SỬA hoặc DÒNG MỚI ĐANG SOẠN
                 return (
-                  <tr key={row.id} className="hover:bg-sky-50/50 transition">
+                  <tr
+                    key={row.id}
+                    className={`transition ${
+                      row.isExisting ? 'bg-[#fffbeb] hover:bg-[#fef3c7]/60' : 'bg-[#f0fdf4] hover:bg-[#dcfce7]/60'
+                    }`}
+                  >
                     <td className="p-1.5 border-r border-sky-100 text-center font-mono text-slate-400 font-bold bg-sky-50/30">
                       {rIdx + 1}
                     </td>
@@ -835,7 +995,13 @@ export const CustomerTab: React.FC = () => {
                         data-po-idx={rIdx}
                         data-col-key="poNumber"
                         onChange={(e) => handlePoCellChange(rIdx, 'poNumber', e.target.value)}
-                        className="w-full text-xs font-mono font-bold text-sky-700 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none uppercase"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveSinglePoRow(rIdx);
+                          }
+                        }}
+                        className="w-full text-xs font-mono font-bold text-sky-700 bg-white border border-sky-300 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none uppercase"
                       />
                     </td>
                     <td className="p-1.5 border-r border-sky-100">
@@ -846,7 +1012,13 @@ export const CustomerTab: React.FC = () => {
                         data-po-idx={rIdx}
                         data-col-key="style"
                         onChange={(e) => handlePoCellChange(rIdx, 'style', e.target.value)}
-                        className="w-full text-xs text-slate-900 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveSinglePoRow(rIdx);
+                          }
+                        }}
+                        className="w-full text-xs text-slate-900 bg-white border border-sky-300 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
                       />
                     </td>
                     <td className="p-1.5 border-r border-sky-100">
@@ -857,7 +1029,13 @@ export const CustomerTab: React.FC = () => {
                         data-po-idx={rIdx}
                         data-col-key="orderDate"
                         onChange={(e) => handlePoCellChange(rIdx, 'orderDate', e.target.value)}
-                        className="w-full text-xs font-mono text-slate-700 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none text-center"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveSinglePoRow(rIdx);
+                          }
+                        }}
+                        className="w-full text-xs font-mono text-slate-700 bg-white border border-sky-300 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none text-center"
                       />
                     </td>
                     <td className="p-1.5 border-r border-sky-100">
@@ -868,7 +1046,13 @@ export const CustomerTab: React.FC = () => {
                         data-po-idx={rIdx}
                         data-col-key="unit"
                         onChange={(e) => handlePoCellChange(rIdx, 'unit', e.target.value)}
-                        className="w-full text-xs text-slate-700 bg-white border border-sky-200 rounded px-1.5 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none text-center"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveSinglePoRow(rIdx);
+                          }
+                        }}
+                        className="w-full text-xs text-slate-700 bg-white border border-sky-300 rounded px-1.5 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none text-center"
                       />
                     </td>
                     {customerSizes.map((s) => {
@@ -882,7 +1066,13 @@ export const CustomerTab: React.FC = () => {
                             data-po-idx={rIdx}
                             data-col-key={`size_${s}`}
                             onChange={(e) => handlePoCellChange(rIdx, `size_${s}`, e.target.value)}
-                            className="w-full text-xs text-center font-mono font-semibold text-slate-800 bg-white border border-sky-200 rounded px-1 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveSinglePoRow(rIdx);
+                              }
+                            }}
+                            className="w-full text-xs text-center font-mono font-semibold text-slate-800 bg-white border border-sky-300 rounded px-1 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
                           />
                         </td>
                       );
@@ -898,18 +1088,48 @@ export const CustomerTab: React.FC = () => {
                         data-po-idx={rIdx}
                         data-col-key="note"
                         onChange={(e) => handlePoCellChange(rIdx, 'note', e.target.value)}
-                        className="w-full text-xs text-slate-600 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveSinglePoRow(rIdx);
+                          }
+                        }}
+                        className="w-full text-xs text-slate-600 bg-white border border-sky-300 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
                       />
                     </td>
-                    <td className="p-1.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePoRow(rIdx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
-                        title="Xóa dòng này"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="p-1.5 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1">
+                        {/* Nút Lưu dòng này */}
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSinglePoRow(rIdx)}
+                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-0.5"
+                          title="Lưu PO này và khóa dòng (Enter)"
+                        >
+                          <Save className="w-3 h-3" />
+                          <span>Lưu</span>
+                        </button>
+                        {/* Nút Hủy nếu sửa PO cũ, hoặc Xóa nếu dòng mới */}
+                        {row.isExisting ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCancelEditPoRow(rIdx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                            title="Hủy bỏ thay đổi"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePoRow(rIdx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                            title="Xóa dòng này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
