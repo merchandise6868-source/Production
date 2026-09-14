@@ -140,21 +140,10 @@ export const Tab3Discrepancy: React.FC = () => {
                 Phát hiện {negativeRowsCount} đơn hàng giao THIẾU (Chênh lệch âm &lt; 0)
               </p>
               <p className="text-[11px] text-rose-600">
-                Hệ thống đã tự động tích dấu BÙ? [x] và sẵn sàng chuyển sang Tab 4 để in phiếu đề nghị cấp bù.
+                Hệ thống đã tự động đánh dấu Cần Bù [X] • Số lượng thiếu sẽ được nhận bù tại Tab 1 &amp; Tab 2 với trạng thái "Hàng bù".
               </p>
             </div>
           </div>
-
-          {onNavigateToTab4 && (
-            <button
-              type="button"
-              onClick={onNavigateToTab4}
-              className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow-xs transition"
-            >
-              <span>Chuyển sang Tab 4 (In Phiếu Bù)</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
       ) : (
         <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-3 flex items-center justify-between gap-3 text-emerald-800 shadow-2xs">
@@ -199,16 +188,6 @@ export const Tab3Discrepancy: React.FC = () => {
               <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Xuất Excel</span>
             </button>
-
-            {onNavigateToTab4 && negativeRowsCount > 0 && (
-              <button
-                type="button"
-                onClick={onNavigateToTab4}
-                className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow-xs transition"
-              >
-                <span>Sang Tab 4 Nhận Bù Vật Tư ({negativeRowsCount}) ➔</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -449,7 +428,7 @@ export const Tab3Discrepancy: React.FC = () => {
                   {grandTotalDiff !== 0 ? (grandTotalDiff > 0 ? `+${grandTotalDiff}` : `${grandTotalDiff}`) : '0'}
                 </td>
                 <td colSpan={3} className="p-2 text-slate-500 text-[11px] italic">
-                  {negativeRowsCount > 0 ? `${negativeRowsCount} đơn tự động chuyển Tab 4` : 'Khớp 100%'}
+                  {negativeRowsCount > 0 ? `${negativeRowsCount} đơn lệch thiếu (nhận bù tại Tab 1 & 2)` : 'Khớp 100%'}
                 </td>
               </tr>
             </tbody>

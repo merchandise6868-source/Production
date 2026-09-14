@@ -17,8 +17,10 @@ export interface PrintTableRow {
 interface PrintHtmlModalProps {
   isOpen: boolean;
   onClose: () => void;
-  documentTitle: string;
+  documentTitle?: string;
+  title?: string;
   documentNumber?: string;
+  documentCode?: string;
   dateStr?: string;
   customerName: string;
   poNumber?: string;
@@ -30,7 +32,9 @@ export const PrintHtmlModal: React.FC<PrintHtmlModalProps> = ({
   isOpen,
   onClose,
   documentTitle,
+  title,
   documentNumber,
+  documentCode,
   dateStr,
   customerName,
   poNumber,
@@ -38,6 +42,9 @@ export const PrintHtmlModal: React.FC<PrintHtmlModalProps> = ({
   rows,
 }) => {
   if (!isOpen) return null;
+
+  const docTitle = documentTitle || title || 'BẢNG IN';
+  const docNum = documentNumber || documentCode || '';
 
   // Calculate size column totals
   const sizeTotals: Record<string, number> = {};
@@ -98,11 +105,11 @@ export const PrintHtmlModal: React.FC<PrintHtmlModalProps> = ({
           {/* Title */}
           <div className="text-center my-4">
             <h1 className="text-lg sm:text-xl font-bold uppercase tracking-wider text-black">
-              {documentTitle}
+              {docTitle}
             </h1>
             <div className="text-xs italic text-slate-600 mt-0.5">
               {dateStr ? `Ngày lập: ${dateStr}` : `Ngày ... tháng ... năm 2026`}
-              {documentNumber && ` • Số phiếu: ${documentNumber}`}
+              {docNum && ` • Số phiếu: ${docNum}`}
             </div>
           </div>
 
