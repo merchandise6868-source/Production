@@ -1065,6 +1065,22 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     > = {};
 
+    // 0. Luôn khởi tạo sẵn dòng cho mọi mã PO từ Đơn hàng Tab 1 để Tab 8 luôn có sẵn dòng nhập xuất thành phẩm
+    currentCustomerPlanOrders.forEach((plan) => {
+      const key = `${plan.poNumber.trim().toUpperCase()}__${plan.itemCode.trim().toUpperCase()}`;
+      if (!groups[key]) {
+        groups[key] = {
+          poNumber: plan.poNumber,
+          itemCode: plan.itemCode,
+          itemType: 'Thành Phẩm',
+          materialName: plan.description || '',
+          unit: plan.unit || 'PRS',
+          inbound: {},
+          delivered: {},
+        };
+      }
+    });
+
     // 1. Tự động đọc dữ liệu nhập kho từ Tab 7 (completedQuantities của các chuyền 1, 2, 3...)
     currentCustomerProductionReports.forEach((rep) => {
       const key = `${rep.poNumber.trim().toUpperCase()}__${rep.itemCode.trim().toUpperCase()}`;
@@ -1141,7 +1157,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         totalStock,
       };
     });
-  }, [currentCustomerProductionReports, currentCustomerFinishedGoodsDeliveries, selectedCustomerId]);
+  }, [currentCustomerPlanOrders, currentCustomerProductionReports, currentCustomerFinishedGoodsDeliveries, selectedCustomerId]);
 
   // Handlers SRS
   const addPlanOrder = (order: PlanOrderRow) => {

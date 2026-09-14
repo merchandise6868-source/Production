@@ -150,7 +150,13 @@ export const Tab8FinishedGoods: React.FC = () => {
   // Cập nhật giá trị ô trên dòng soạn đợt mới
   const handleUpdateDraftField = (itemKey: string, field: keyof FinishedGoodsDeliveryRow, value: any) => {
     setDraftDeliveries((prev) => {
-      const current = prev[itemKey];
+      let current = prev[itemKey];
+      if (!current) {
+        const item = currentCustomerFinishedGoodsStock.find((i) => i.key === itemKey);
+        if (item) {
+          current = createBlankDelivery(item, getPoDeliveries(item).length + 1);
+        }
+      }
       if (!current) return prev;
       return {
         ...prev,
@@ -164,7 +170,13 @@ export const Tab8FinishedGoods: React.FC = () => {
 
   const handleUpdateDraftSize = (itemKey: string, size: string, val: string) => {
     setDraftDeliveries((prev) => {
-      const current = prev[itemKey];
+      let current = prev[itemKey];
+      if (!current) {
+        const item = currentCustomerFinishedGoodsStock.find((i) => i.key === itemKey);
+        if (item) {
+          current = createBlankDelivery(item, getPoDeliveries(item).length + 1);
+        }
+      }
       if (!current) return prev;
       const num = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
       const nextSq = { ...current.sizeQuantities, [size]: num };
@@ -362,7 +374,11 @@ export const Tab8FinishedGoods: React.FC = () => {
   // Cập nhật giá trị ô khi đang sửa đợt xuất đã lưu
   const handleUpdateEditingField = (deliveryId: string, field: keyof FinishedGoodsDeliveryRow, value: any) => {
     setEditingDeliveries((prev) => {
-      const current = prev[deliveryId];
+      let current = prev[deliveryId];
+      if (!current) {
+        const found = currentCustomerFinishedGoodsDeliveries.find((d) => d.id === deliveryId);
+        if (found) current = { ...found, sizeQuantities: { ...found.sizeQuantities } };
+      }
       if (!current) return prev;
       return {
         ...prev,
@@ -376,7 +392,11 @@ export const Tab8FinishedGoods: React.FC = () => {
 
   const handleUpdateEditingSize = (deliveryId: string, size: string, val: string) => {
     setEditingDeliveries((prev) => {
-      const current = prev[deliveryId];
+      let current = prev[deliveryId];
+      if (!current) {
+        const found = currentCustomerFinishedGoodsDeliveries.find((d) => d.id === deliveryId);
+        if (found) current = { ...found, sizeQuantities: { ...found.sizeQuantities } };
+      }
       if (!current) return prev;
       const num = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
       const nextSq = { ...current.sizeQuantities, [size]: num };
@@ -1222,9 +1242,11 @@ export const Tab8FinishedGoods: React.FC = () => {
                                     />
                                   ) : (
                                     <div
-                                      className={`p-2 font-mono font-bold text-center ${
+                                      onClick={() => handleStartEditDelivery(del)}
+                                      className={`p-2 font-mono font-bold text-center cursor-pointer hover:ring-1 hover:ring-sky-400 rounded ${
                                         val > 0 ? 'text-amber-900 bg-amber-100/50' : 'text-slate-300'
                                       }`}
+                                      title="Bấm để mở khóa sửa đợt xuất này"
                                     >
                                       {val > 0 ? val.toLocaleString('vi-VN') : '-'}
                                     </div>
