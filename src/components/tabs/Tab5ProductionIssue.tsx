@@ -70,13 +70,28 @@ export const Tab5ProductionIssue: React.FC = () => {
     return ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
   }, [activeSizeRun]);
 
-  // Lấy danh sách tên chi tiết / vật tư có trong PO đó
+  // Danh sách chi tiết tiêu chuẩn ngành giày để luôn có gợi ý phong phú
+  const DEFAULT_SHOE_DETAILS = [
+    'Mũi giày',
+    'Hông giày',
+    'Gót giày',
+    'Đế giày',
+    'Lót giày',
+    'Quai giày',
+    'Lưỡi gà',
+    'Da mặt',
+    'Vải lót',
+    'Chỉ may',
+    'Khóa kéo',
+  ];
+
+  // Lấy danh sách tên chi tiết / vật tư có trong PO đó + gợi ý thông dụng
   const getPoDetails = (poNumber: string) => {
     const matching = currentCustomerPlanOrders.filter(
-      (p) => p.poNumber.toUpperCase() === poNumber.toUpperCase()
+      (p) => p.poNumber.toUpperCase() === (poNumber || '').toUpperCase()
     );
     const details = matching.map((p) => p.description || p.itemCode).filter(Boolean);
-    return Array.from(new Set(details));
+    return Array.from(new Set([...details, ...DEFAULT_SHOE_DETAILS]));
   };
 
   // Nút Xuất đủ: Điền nhanh 100% số lượng từ Tồn kho Tab 5 hoặc Kế hoạch Tab 1
@@ -705,7 +720,11 @@ export const Tab5ProductionIssue: React.FC = () => {
                     {/* Ngày Xuất */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
-                        <div className="p-2 font-mono text-slate-700 whitespace-nowrap">
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-mono text-slate-700 whitespace-nowrap cursor-pointer hover:bg-sky-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
                           {item.issueDate}
                         </div>
                       ) : (
@@ -728,7 +747,11 @@ export const Tab5ProductionIssue: React.FC = () => {
                     {/* Mã PO (Autocomplete Dropdown) */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
-                        <div className="p-2 font-mono font-bold text-sky-700 whitespace-nowrap">
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-mono font-bold text-sky-700 whitespace-nowrap cursor-pointer hover:bg-sky-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
                           {item.poNumber}
                         </div>
                       ) : (
@@ -759,7 +782,11 @@ export const Tab5ProductionIssue: React.FC = () => {
                     {/* Code Vật tư */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
-                        <div className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap">
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap cursor-pointer hover:bg-sky-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
                           {item.itemCode}
                         </div>
                       ) : (
@@ -779,41 +806,49 @@ export const Tab5ProductionIssue: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Tên Chi Tiết (Dropdown danh sách chi tiết có trong PO đó) */}
+                    {/* Tên Chi Tiết (Cho phép vừa gõ vừa chọn gợi ý) */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
-                        <div className="p-2 text-slate-700 whitespace-nowrap">
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-slate-700 whitespace-nowrap cursor-pointer hover:bg-sky-50/60 transition-colors font-medium"
+                          title="Click để sửa tên chi tiết"
+                        >
                           {item.detailName || '-'}
                         </div>
                       ) : (
-                        <select
-                          data-row-idx={idx}
-                          data-col-key="detailName"
-                          value={item.detailName || ''}
-                          onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
-                          onKeyDown={(e) => {
-                            handleCellArrowNavigation(e, gridContainerRef);
-                            if (e.key === 'Enter') handleSaveRow(item.id);
-                          }}
-                          className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white cursor-pointer text-slate-700 font-medium"
-                        >
-                          <option value="">-- Chọn chi tiết --</option>
-                          {getPoDetails(item.poNumber).map((det) => (
-                            <option key={det} value={det}>
-                              {det}
-                            </option>
-                          ))}
-                          {item.detailName && !getPoDetails(item.poNumber).includes(item.detailName) && (
-                            <option value={item.detailName}>{item.detailName}</option>
-                          )}
-                        </select>
+                        <>
+                          <input
+                            type="text"
+                            list={`tab5-details-${item.id}`}
+                            data-row-idx={idx}
+                            data-col-key="detailName"
+                            value={item.detailName || ''}
+                            onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
+                            onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
+                              if (e.key === 'Enter') handleSaveRow(item.id);
+                            }}
+                            placeholder="Gõ hoặc chọn..."
+                            className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white text-slate-700 font-medium"
+                          />
+                          <datalist id={`tab5-details-${item.id}`}>
+                            {getPoDetails(item.poNumber).map((det) => (
+                              <option key={det} value={det} />
+                            ))}
+                          </datalist>
+                        </>
                       )}
                     </td>
 
                     {/* Bộ Phận Nhận (Chuyền) */}
                     <td className="p-0 border-r border-slate-200 bg-sky-50/40">
                       {isLocked ? (
-                        <div className="p-2 font-semibold text-sky-900 whitespace-nowrap">
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-semibold text-sky-900 whitespace-nowrap cursor-pointer hover:bg-sky-100/60 transition-colors"
+                          title="Click để sửa"
+                        >
                           {item.lineId}
                         </div>
                       ) : (
@@ -840,7 +875,13 @@ export const Tab5ProductionIssue: React.FC = () => {
                     {/* ĐVT */}
                     <td className="p-0 border-r border-slate-200 text-center">
                       {isLocked ? (
-                        <div className="p-2 text-slate-600">{item.unit}</div>
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-slate-600 cursor-pointer hover:bg-sky-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.unit}
+                        </div>
                       ) : (
                         <select
                           data-row-idx={idx}
@@ -873,9 +914,11 @@ export const Tab5ProductionIssue: React.FC = () => {
                         <td key={s} className="p-0 border-r border-slate-200 text-center">
                           {isLocked ? (
                             <div
-                              className={`p-2 font-mono font-bold ${
+                              onClick={() => handleUnlockRow(item.id)}
+                              className={`p-2 font-mono font-bold cursor-pointer hover:bg-sky-50/60 transition-colors ${
                                 typeof val === 'number' && val > 0 ? 'text-slate-900 bg-slate-50/60' : 'text-slate-300'
                               }`}
+                              title="Click để sửa"
                             >
                               {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
                             </div>
@@ -907,7 +950,11 @@ export const Tab5ProductionIssue: React.FC = () => {
                     {/* Ghi Chú */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
-                        <div className="p-2 text-slate-600 text-[11px] truncate max-w-[140px]">
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-slate-600 text-[11px] truncate max-w-[140px] cursor-pointer hover:bg-sky-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
                           {item.note || '-'}
                         </div>
                       ) : (

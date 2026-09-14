@@ -76,13 +76,28 @@ export const Tab7ProductionReport: React.FC = () => {
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  // Lấy danh sách tên chi tiết / vật tư có trong PO đó
+  // Danh sách chi tiết tiêu chuẩn ngành giày để luôn có gợi ý phong phú
+  const DEFAULT_SHOE_DETAILS = [
+    'Mũi giày',
+    'Hông giày',
+    'Gót giày',
+    'Đế giày',
+    'Lót giày',
+    'Quai giày',
+    'Lưỡi gà',
+    'Da mặt',
+    'Vải lót',
+    'Chỉ may',
+    'Khóa kéo',
+  ];
+
+  // Lấy danh sách tên chi tiết / vật tư có trong PO đó + gợi ý thông dụng
   const getPoDetails = (poNumber: string) => {
     const matching = currentCustomerPlanOrders.filter(
-      (p) => p.poNumber.toUpperCase() === poNumber.toUpperCase()
+      (p) => p.poNumber.toUpperCase() === (poNumber || '').toUpperCase()
     );
     const details = matching.map((p) => p.description || p.itemCode).filter(Boolean);
-    return Array.from(new Set(details));
+    return Array.from(new Set([...details, ...DEFAULT_SHOE_DETAILS]));
   };
 
   const createBlankItem = (idx: number, isEditing: boolean = true): Tab7ReportItem => {
@@ -737,7 +752,11 @@ export const Tab7ProductionReport: React.FC = () => {
                         className="p-0 border-r border-slate-300 align-middle bg-white"
                       >
                         {isLocked ? (
-                          <div className="p-2 font-mono text-slate-700 whitespace-nowrap">
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-2 font-mono text-slate-700 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                            title="Click để sửa"
+                          >
                             {item.reportDate}
                           </div>
                         ) : (
@@ -761,7 +780,11 @@ export const Tab7ProductionReport: React.FC = () => {
                         className="p-1 border-r border-slate-300 align-middle bg-white"
                       >
                         {isLocked ? (
-                          <div className="p-1 font-mono font-bold text-sky-700 whitespace-nowrap">
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-1 font-mono font-bold text-sky-700 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                            title="Click để sửa"
+                          >
                             {item.poNumber}
                           </div>
                         ) : (
@@ -784,7 +807,11 @@ export const Tab7ProductionReport: React.FC = () => {
                         className="p-0 border-r border-slate-300 align-middle bg-white"
                       >
                         {isLocked ? (
-                          <div className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap">
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                            title="Click để sửa"
+                          >
                             {item.itemCode}
                           </div>
                         ) : (
@@ -802,33 +829,38 @@ export const Tab7ProductionReport: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Tên Chi Tiết */}
+                      {/* Tên Chi Tiết (Cho phép vừa gõ vừa chọn gợi ý) */}
                       <td
                         rowSpan={2}
                         className="p-0 border-r border-slate-300 align-middle bg-white min-w-[120px]"
                       >
                         {isLocked ? (
-                          <div className="p-2 text-slate-800 text-xs truncate max-w-[140px]" title={item.detailName || ''}>
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-2 text-slate-800 text-xs truncate max-w-[140px] cursor-pointer hover:bg-emerald-50/60 transition-colors font-medium"
+                            title={item.detailName || 'Click để sửa tên chi tiết'}
+                          >
                             {item.detailName || '-'}
                           </div>
                         ) : (
                           <div className="p-1">
-                            <select
+                            <input
+                              type="text"
+                              list={`tab7-details-${item.id}`}
                               value={item.detailName || ''}
                               onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
                               onKeyDown={(e) => {
                                 handleCellArrowNavigation(e, gridContainerRef);
                                 if (e.key === 'Enter') handleSaveRow(item.id);
                               }}
-                              className="w-full h-8 px-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white"
-                            >
-                              <option value="">-- Chọn chi tiết --</option>
+                              placeholder="Gõ hoặc chọn..."
+                              className="w-full h-8 px-2 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white"
+                            />
+                            <datalist id={`tab7-details-${item.id}`}>
                               {getPoDetails(item.poNumber).map((d) => (
-                                <option key={d} value={d}>
-                                  {d}
-                                </option>
+                                <option key={d} value={d} />
                               ))}
-                            </select>
+                            </datalist>
                           </div>
                         )}
                       </td>
@@ -839,7 +871,11 @@ export const Tab7ProductionReport: React.FC = () => {
                         className="p-0 border-r border-slate-300 bg-sky-50/40 align-middle"
                       >
                         {isLocked ? (
-                          <div className="p-2 font-bold text-sky-900 whitespace-nowrap">
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-2 font-bold text-sky-900 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                            title="Click để sửa"
+                          >
                             {item.lineId}
                           </div>
                         ) : (
@@ -867,7 +903,13 @@ export const Tab7ProductionReport: React.FC = () => {
                         className="p-0 border-r border-slate-300 text-center align-middle bg-white"
                       >
                         {isLocked ? (
-                          <div className="p-2 text-slate-600 text-center">{item.unit}</div>
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-2 text-slate-600 text-center cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                            title="Click để sửa"
+                          >
+                            {item.unit}
+                          </div>
                         ) : (
                           <input
                             type="text"
@@ -895,9 +937,11 @@ export const Tab7ProductionReport: React.FC = () => {
                           <td key={s} className="p-0 border-r border-slate-200 text-center">
                             {isLocked ? (
                               <div
-                                className={`p-2 font-mono font-bold ${
+                                onClick={() => handleUnlockRow(item.id)}
+                                className={`p-2 font-mono font-bold cursor-pointer hover:bg-emerald-50/60 transition-colors ${
                                    typeof val === 'number' && val > 0 ? 'text-emerald-900 bg-emerald-50/40' : 'text-slate-300'
                                 }`}
+                                title="Click để sửa"
                               >
                                 {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
                               </div>
@@ -952,7 +996,11 @@ export const Tab7ProductionReport: React.FC = () => {
                         className="p-0 border-r border-slate-300 align-middle bg-white"
                       >
                         {isLocked ? (
-                          <div className="p-2 text-slate-600 text-[11px] truncate max-w-[130px]">
+                          <div
+                            onClick={() => handleUnlockRow(item.id)}
+                            className="p-2 text-slate-600 text-[11px] truncate max-w-[130px] cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                            title="Click để sửa"
+                          >
                             {item.note || '-'}
                           </div>
                         ) : (
@@ -1073,9 +1121,11 @@ export const Tab7ProductionReport: React.FC = () => {
                           <td key={s} className="p-0 border-r border-slate-200 text-center">
                             {isLocked ? (
                               <div
-                                className={`p-2 font-mono font-bold ${
+                                onClick={() => handleUnlockRow(item.id)}
+                                className={`p-2 font-mono font-bold cursor-pointer hover:bg-rose-100/60 transition-colors ${
                                   typeof val === 'number' && val > 0 ? 'text-rose-900 bg-rose-100/60' : 'text-slate-300'
                                 }`}
+                                title="Click để sửa"
                               >
                                 {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
                               </div>
