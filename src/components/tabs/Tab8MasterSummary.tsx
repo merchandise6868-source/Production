@@ -39,6 +39,7 @@ export const Tab8MasterSummary: React.FC = () => {
   }, [activeSizeRun]);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isDetailView, setIsDetailView] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<'ALL' | 'NEEDED_ONLY' | 'HAS_STOCK_ONLY'>('ALL');
   const [viewMode, setViewMode] = useState<'MATRIX' | 'FLAT'>('MATRIX');
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -167,6 +168,14 @@ export const Tab8MasterSummary: React.FC = () => {
           (fg) => fg.poNumber.trim().toUpperCase() === poNum
         );
 
+      const itemType = poDeliveries[0]?.itemType || fgStockItem?.itemType || 'Thành Phẩm';
+      const materialName =
+        poDeliveries[0]?.materialName ||
+        fgStockItem?.materialName ||
+        (plan as any).materialName ||
+        plan.description ||
+        '';
+
       const issuedSizes: Record<string, number> = {};
       let issuedTotal = 0;
 
@@ -229,9 +238,12 @@ export const Tab8MasterSummary: React.FC = () => {
         date: plan.receiptDate,
         poNumber: plan.poNumber,
         itemCode: plan.itemCode,
+        itemType,
+        materialName,
         voucherCode: plan.voucherCode,
         description: plan.description,
         unit: plan.unit,
+        poDeliveries,
 
         // 4 chỉ số nghiệp vụ chính
         orderSizes,
@@ -263,6 +275,8 @@ export const Tab8MasterSummary: React.FC = () => {
         !searchQuery.trim() ||
         r.poNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.itemCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (r.materialName && r.materialName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (r.itemType && r.itemType.toLowerCase().includes(searchQuery.toLowerCase())) ||
         r.voucherCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.description.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -322,6 +336,116 @@ export const Tab8MasterSummary: React.FC = () => {
 
   // Export Excel
   const handleExportExcel = () => {
+    if (isDetailView && searchQuery.trim()) {
+      if (filteredRows.length === 0) {
+        alert('Không có dữ liệu chi tiết để xuất.');
+        return;
+      }
+
+      const headers = [
+        'STT',
+        'Ngày',
+        'Mã PO',
+        'Code Vật tư',
+        'Loại',
+        'Tên Vật tư',
+        'ĐVT',
+        'Phân Loại / Đợt Xuất Giao',
+        ...sizes.map((s) => `Size ${s}`),
+        'Tổng Cộng',
+        'Tình Trạng',
+      ];
+
+      const dataRows: any[] = [];
+      let stt = 1;
+
+      filteredRows.forEach((r) => {
+        // 1. Số trên đơn hàng gốc
+        dataRows.push([
+          stt++,
+          r.date || '',
+          r.poNumber,
+          r.itemCode,
+          r.itemType,
+          r.materialName,
+          r.unit,
+          '1. Số trên đơn hàng gốc',
+          ...sizes.map((s) => r.orderSizes[s] || 0),
+          r.orderTotal,
+          'Đơn gốc',
+        ]);
+
+        // 2. Các đợt xuất từ Tab 8
+        if (r.poDeliveries && r.poDeliveries.length > 0) {
+          r.poDeliveries.forEach((d) => {
+            dataRows.push([
+              stt++,
+              d.deliveryDate || '',
+              d.poNumber,
+              d.itemCode || r.itemCode,
+              d.itemType || r.itemType,
+              d.materialName || r.materialName || r.description,
+              r.unit,
+              `2. Đợt xuất (${d.deliveryVoucher ? `HĐ: ${d.deliveryVoucher}` : 'Xuất giao'}${d.receiver ? ` - KH: ${d.receiver}` : ''})`,
+              ...sizes.map((s) => d.sizeQuantities?.[s] || 0),
+              d.totalQty,
+              d.status || 'Đã giao',
+            ]);
+          });
+        } else {
+          dataRows.push([
+            stt++,
+            '',
+            r.poNumber,
+            r.itemCode,
+            r.itemType,
+            r.materialName,
+            r.unit,
+            '2. Số đã xuất (Chưa xuất)',
+            ...sizes.map(() => 0),
+            0,
+            'Chưa xuất',
+          ]);
+        }
+
+        // 3. Số còn cần xuất
+        dataRows.push([
+          stt++,
+          '',
+          r.poNumber,
+          r.itemCode,
+          r.itemType,
+          r.materialName,
+          r.unit,
+          '3. Số còn cần xuất',
+          ...sizes.map((s) => r.neededSizes[s] || 0),
+          r.neededTotal,
+          r.neededTotal > 0 ? 'Cần xuất' : 'Đã đủ',
+        ]);
+
+        // 4. Số còn tồn chưa xuất
+        dataRows.push([
+          stt++,
+          'Hiện tại',
+          r.poNumber,
+          r.itemCode,
+          r.itemType,
+          r.materialName,
+          r.unit,
+          '4. Số còn tồn chưa xuất',
+          ...sizes.map((s) => r.stockSizes[s] || 0),
+          r.stockTotal,
+          r.stockTotal > 0 ? 'Còn tồn' : 'Hết tồn',
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `ChiTiet_${searchQuery}`);
+      XLSX.writeFile(wb, `Tab9_ChiTiet_${searchQuery}_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+      return;
+    }
+
     if (filteredRows.length === 0) {
       alert('Không có dữ liệu để xuất Excel.');
       return;
@@ -331,7 +455,9 @@ export const Tab8MasterSummary: React.FC = () => {
       'STT',
       'Ngày Nhập',
       'Mã PO',
-      'Mã Hàng (TT Code)',
+      'Code Vật tư',
+      'Loại',
+      'Tên Vật tư',
       'Số Phiếu KH',
       'Diễn Giải',
       'ĐVT',
@@ -350,6 +476,8 @@ export const Tab8MasterSummary: React.FC = () => {
         r.date,
         r.poNumber,
         r.itemCode,
+        r.itemType,
+        r.materialName,
         r.voucherCode,
         r.description,
         r.unit,
@@ -360,6 +488,8 @@ export const Tab8MasterSummary: React.FC = () => {
 
       // Line 2: Số đã xuất
       dataRows.push([
+        '',
+        '',
         '',
         '',
         '',
@@ -381,6 +511,8 @@ export const Tab8MasterSummary: React.FC = () => {
         '',
         '',
         '',
+        '',
+        '',
         '3. Số còn cần xuất',
         ...sizes.map((s) => r.neededSizes[s] || 0),
         r.neededTotal,
@@ -388,6 +520,8 @@ export const Tab8MasterSummary: React.FC = () => {
 
       // Line 4: Số còn tồn chưa xuất
       dataRows.push([
+        '',
+        '',
         '',
         '',
         '',
@@ -413,11 +547,11 @@ export const Tab8MasterSummary: React.FC = () => {
   const printRows: PrintTableRow[] = useMemo(() => {
     return filteredRows.map((r, idx) => ({
       stt: idx + 1,
-      date: r.date,
+      date: r.date || '',
       poNumber: r.poNumber,
       code: r.itemCode,
       voucherCode: r.voucherCode,
-      description: r.description,
+      description: `${r.itemType ? `[${r.itemType}] ` : ''}${r.materialName || r.description}`,
       unit: r.unit,
       sizeQuantities: r.stockSizes,
       totalQty: r.stockTotal,
@@ -603,13 +737,51 @@ export const Tab8MasterSummary: React.FC = () => {
             <div className="relative w-56 sm:w-64">
               <input
                 type="text"
-                placeholder="Tìm PO, mã hàng, diễn giải..."
+                placeholder="Tìm PO, Code Vật tư, tên vật tư..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  if (!val.trim()) setIsDetailView(false);
+                }}
                 className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-sky-500 focus:outline-none"
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
             </div>
+
+            {/* Nút Xem Chi Tiết cạnh khung tìm kiếm */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!searchQuery.trim()) {
+                  alert('Vui lòng nhập mã PO vào ô tìm kiếm trước khi bấm Xem chi tiết!');
+                  return;
+                }
+                setIsDetailView((prev) => !prev);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold border transition cursor-pointer ${
+                isDetailView
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-2xs'
+                  : 'bg-white hover:bg-slate-100 text-sky-700 border-sky-300 shadow-2xs'
+              }`}
+              title={
+                isDetailView
+                  ? 'Quay lại dạng tổng hợp'
+                  : 'Hiển thị thêm cột Ngày và chi tiết từng đợt xuất giao thành phẩm'
+              }
+            >
+              {isDetailView ? (
+                <>
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>📊 Dạng Tổng Hợp</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-3.5 h-3.5" />
+                  <span>👁️ Xem Chi Tiết</span>
+                </>
+              )}
+            </button>
 
             {/* Filter buttons */}
             <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded border border-slate-200">
@@ -650,21 +822,298 @@ export const Tab8MasterSummary: React.FC = () => {
           </div>
 
           <div className="text-[11px] text-slate-500 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 font-mono text-slate-600">
-              Khách hàng: <strong className="text-slate-900">{currentCustomer?.name || 'Mặc định'}</strong>
-            </span>
+            {isDetailView && searchQuery.trim() ? (
+              <span className="text-amber-700 font-semibold">
+                Đang xem chi tiết theo ngày cho mã PO "{searchQuery}" • Xóa mã PO để quay lại tổng hợp
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 font-mono text-slate-600">
+                Khách hàng: <strong className="text-slate-900">{currentCustomer?.name || 'Mặc định'}</strong>
+              </span>
+            )}
           </div>
         </div>
 
-        {/* VIEW 1: MATRIX VIEW (CHI TIẾT DẢI SIZE) */}
-        {viewMode === 'MATRIX' && (
+        {/* VIEW CHI TIẾT THEO NGÀY (KHI BẤM XEM CHI TIẾT PO) */}
+        {isDetailView && searchQuery.trim() ? (
+          <div className="overflow-x-auto max-h-[580px] overflow-y-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
+                <tr>
+                  <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[95px] bg-amber-100/70 text-amber-950 font-bold">Ngày</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[90px]">Loại</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[130px]">Tên Vật tư</th>
+                  <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[200px] bg-slate-100 text-slate-800">
+                    Chỉ Số / Đợt Xuất Giao
+                  </th>
+
+                  {sizes.map((s) => (
+                    <th
+                      key={s}
+                      className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-slate-100 text-slate-800"
+                    >
+                      Size {s}
+                    </th>
+                  ))}
+
+                  <th className="p-2 border-r border-slate-300 min-w-[85px] text-right bg-slate-100 text-slate-900 font-bold">
+                    TỔNG CỘNG
+                  </th>
+                  <th className="p-2 text-center min-w-[95px] bg-slate-100 text-slate-800">
+                    TÌNH TRẠNG
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-200 font-sans">
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8 + sizes.length + 2} className="p-8 text-center text-slate-400 text-xs italic">
+                      Không tìm thấy dữ liệu cho mã PO "{searchQuery}"!
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRows.map((row) => (
+                    <React.Fragment key={row.id}>
+                      {/* 1. Kế hoạch đơn hàng gốc */}
+                      <tr className="bg-slate-50/60 hover:bg-slate-100/60 border-t-2 border-slate-300">
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-500 font-bold">
+                          {row.stt}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-amber-900 bg-amber-50/50">
+                          {row.date || '-'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700">
+                          {row.poNumber}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-800">
+                          {row.itemCode}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-slate-700 font-semibold">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            row.itemType === 'Bán TP' ? 'bg-indigo-100 text-indigo-800' : 'bg-sky-100 text-sky-800'
+                          }`}>
+                            {row.itemType || 'Thành Phẩm'}
+                          </span>
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-slate-700 font-medium max-w-[150px] truncate" title={row.materialName || row.description}>
+                          {row.materialName || row.description || '-'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-500 font-mono">
+                          {row.unit}
+                        </td>
+                        <td className="p-1.5 border-r border-slate-200 text-slate-800 font-medium flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                          <span>1. Số trên đơn hàng gốc</span>
+                        </td>
+                        {sizes.map((s) => {
+                          const q = row.orderSizes[s] || 0;
+                          return (
+                            <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-slate-700">
+                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                            </td>
+                          );
+                        })}
+                        <td className="p-1.5 border-r border-slate-200 text-right font-mono font-bold text-slate-900 bg-slate-100/60">
+                          {row.orderTotal.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="p-1.5 text-center">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                            Đơn gốc
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* 2. Từng đợt xuất thành phẩm từ Tab 8 */}
+                      {row.poDeliveries && row.poDeliveries.length > 0 ? (
+                        row.poDeliveries.map((del, dIdx) => (
+                          <tr key={del.id || `del-${dIdx}`} className="bg-sky-50/20 hover:bg-sky-50/40">
+                            <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400 text-[11px]">
+                              {row.stt}.{dIdx + 1}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-900 bg-sky-50/60">
+                              {del.deliveryDate || '-'}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 font-mono text-sky-700">
+                              {del.poNumber}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 font-mono text-slate-700">
+                              {del.itemCode || row.itemCode}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 text-slate-600">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700">
+                                {del.itemType || row.itemType || 'Thành Phẩm'}
+                              </span>
+                            </td>
+                            <td className="p-2 border-r border-slate-200 text-slate-600 max-w-[150px] truncate" title={del.materialName || row.materialName}>
+                              {del.materialName || row.materialName || '-'}
+                            </td>
+                            <td className="p-2 border-r border-slate-200 text-center text-slate-500 font-mono">
+                              {row.unit}
+                            </td>
+                            <td className="p-1.5 border-r border-slate-200 text-sky-900 font-medium flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                              <span>
+                                2. Đợt {dIdx + 1}: {del.deliveryVoucher ? `HĐ ${del.deliveryVoucher}` : 'Xuất giao'}
+                                {del.receiver ? ` (${del.receiver})` : ''}
+                              </span>
+                            </td>
+                            {sizes.map((s) => {
+                              const q = del.sizeQuantities?.[s] || 0;
+                              return (
+                                <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-sky-950">
+                                  {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                                </td>
+                              );
+                            })}
+                            <td className="p-1.5 border-r border-slate-200 text-right font-mono font-bold text-sky-950 bg-sky-100/50">
+                              {del.totalQty.toLocaleString('vi-VN')}
+                            </td>
+                            <td className="p-1.5 text-center">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800">
+                                {del.status || 'Đã giao'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr className="bg-slate-50/30">
+                          <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400 text-[11px]">-</td>
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-400 font-mono">-</td>
+                          <td className="p-2 border-r border-slate-200 font-mono text-slate-400">{row.poNumber}</td>
+                          <td className="p-2 border-r border-slate-200 font-mono text-slate-400">{row.itemCode}</td>
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-400">-</td>
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-400">-</td>
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-400 font-mono">{row.unit}</td>
+                          <td className="p-1.5 border-r border-slate-200 text-slate-400 italic flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                            <span>2. Số đã xuất (Chưa xuất đợt nào)</span>
+                          </td>
+                          {sizes.map((s) => (
+                            <td key={s} className="p-1.5 border-r border-slate-200 text-center text-slate-400 font-mono">-</td>
+                          ))}
+                          <td className="p-1.5 border-r border-slate-200 text-right text-slate-400 font-mono font-bold">0</td>
+                          <td className="p-1.5 text-center">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">Chưa xuất</span>
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* 3. Số còn cần xuất */}
+                      <tr className={row.neededTotal > 0 ? 'bg-amber-50/40 hover:bg-amber-50/60' : 'bg-slate-50/20'}>
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400">-</td>
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400">-</td>
+                        <td className="p-2 border-r border-slate-200 font-mono text-slate-500">{row.poNumber}</td>
+                        <td className="p-2 border-r border-slate-200 font-mono text-slate-500">{row.itemCode}</td>
+                        <td className="p-2 border-r border-slate-200 text-slate-500 text-center">-</td>
+                        <td className="p-2 border-r border-slate-200 text-slate-500 text-center">-</td>
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-500 font-mono">{row.unit}</td>
+                        <td className="p-1.5 border-r border-slate-200 font-medium flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${row.neededTotal > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                          <span className={row.neededTotal > 0 ? 'text-amber-900 font-bold' : 'text-slate-700'}>
+                            3. Số còn cần xuất
+                          </span>
+                        </td>
+                        {sizes.map((s) => {
+                          const need = row.neededSizes[s] || 0;
+                          return (
+                            <td
+                              key={s}
+                              className={`p-1.5 border-r border-slate-200 text-center font-mono font-bold ${
+                                need > 0 ? 'bg-amber-100/70 text-amber-800' : 'text-slate-400'
+                              }`}
+                            >
+                              {need > 0 ? need.toLocaleString('vi-VN') : '-'}
+                            </td>
+                          );
+                        })}
+                        <td
+                          className={`p-1.5 border-r border-slate-200 text-right font-mono font-bold ${
+                            row.neededTotal > 0 ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {row.neededTotal.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="p-1.5 text-center">
+                          {row.neededTotal > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                              Cần xuất
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              Đã đủ
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+
+                      {/* 4. Số còn tồn chưa xuất */}
+                      <tr className="bg-emerald-50/50 hover:bg-emerald-50/70 font-bold border-b-2 border-slate-300">
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400">-</td>
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-emerald-800 bg-emerald-100/40 text-[11px]">
+                          Hiện tại
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono text-slate-500">{row.poNumber}</td>
+                        <td className="p-2 border-r border-slate-200 font-mono text-slate-500">{row.itemCode}</td>
+                        <td className="p-2 border-r border-slate-200 text-slate-500 text-center">-</td>
+                        <td className="p-2 border-r border-slate-200 text-slate-500 text-center">-</td>
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-500 font-mono">{row.unit}</td>
+                        <td className="p-2 border-r border-slate-200 text-emerald-950 font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                          <span>4. Số còn tồn chưa xuất</span>
+                        </td>
+                        {sizes.map((s) => {
+                          const stock = row.stockSizes[s] || 0;
+                          return (
+                            <td
+                              key={s}
+                              className={`p-2 border-r border-slate-200 text-center font-mono font-bold text-xs ${
+                                stock > 0
+                                  ? 'text-emerald-950 bg-emerald-100/40'
+                                  : stock < 0
+                                  ? 'text-rose-700 bg-rose-100/60'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {stock !== 0 ? stock.toLocaleString('vi-VN') : '0'}
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 border-r border-slate-200 text-right font-mono font-extrabold text-xs text-emerald-950 bg-emerald-200/50">
+                          {row.stockTotal.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="p-2 text-center">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              row.stockTotal > 0
+                                ? 'bg-emerald-200 text-emerald-900'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {row.stockTotal > 0 ? 'Còn tồn' : 'Hết tồn'}
+                          </span>
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : viewMode === 'MATRIX' ? (
           <div className="overflow-x-auto max-h-[580px] overflow-y-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
                 <tr>
                   <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
                   <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Mã Hàng (TT)</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[90px]">Loại</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[130px]">Tên Vật tư</th>
                   <th className="p-2 border-r border-slate-300 min-w-[140px]">Diễn Giải</th>
                   <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
                   <th className="p-2 border-r border-slate-300 min-w-[185px] bg-slate-100 text-slate-800">
@@ -692,7 +1141,7 @@ export const Tab8MasterSummary: React.FC = () => {
               <tbody className="divide-y divide-slate-200 font-sans">
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6 + sizes.length + 2} className="p-8 text-center text-slate-400 text-xs italic">
+                    <td colSpan={8 + sizes.length + 2} className="p-8 text-center text-slate-400 text-xs italic">
                       Không tìm thấy đơn hàng nào phù hợp với bộ lọc!
                     </td>
                   </tr>
@@ -713,7 +1162,17 @@ export const Tab8MasterSummary: React.FC = () => {
                         <td rowSpan={4} className="p-2 border-r border-slate-300 font-mono font-bold text-slate-800 bg-slate-50/80 align-middle">
                           {row.itemCode}
                         </td>
-                        <td rowSpan={4} className="p-2 border-r border-slate-300 text-slate-600 bg-slate-50/80 align-middle max-w-[160px] truncate" title={row.description}>
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 text-slate-700 bg-slate-50/80 align-middle font-semibold">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            row.itemType === 'Bán TP' ? 'bg-indigo-100 text-indigo-800' : 'bg-sky-100 text-sky-800'
+                          }`}>
+                            {row.itemType || 'Thành Phẩm'}
+                          </span>
+                        </td>
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 text-slate-700 bg-slate-50/80 align-middle max-w-[140px] truncate" title={row.materialName || row.description}>
+                          {row.materialName || row.description || '-'}
+                        </td>
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 text-slate-600 bg-slate-50/80 align-middle max-w-[140px] truncate" title={row.description}>
                           {row.description}
                         </td>
                         <td rowSpan={4} className="p-2 border-r border-slate-300 text-center text-slate-500 bg-slate-50/80 align-middle font-mono">
@@ -851,7 +1310,7 @@ export const Tab8MasterSummary: React.FC = () => {
 
                 {/* Footer Total */}
                 <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-300">
-                  <td colSpan={6} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                  <td colSpan={8} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
                     TỔNG CỘNG TOÀN BỘ TỒN KHO CHƯA XUẤT:
                   </td>
                   {sizes.map((s) => {
@@ -872,17 +1331,17 @@ export const Tab8MasterSummary: React.FC = () => {
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* VIEW 2: FLAT VIEW (BẢNG RÚT GỌN 1 DÒNG) */}
-        {viewMode === 'FLAT' && (
+        ) : (
+          /* VIEW 2: FLAT VIEW (BẢNG RÚT GỌN 1 DÒNG) */
           <div className="overflow-x-auto max-h-[580px] overflow-y-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
                 <tr>
                   <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
                   <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
-                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Mã Hàng (TT)</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[90px]">Loại</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[130px]">Tên Vật tư</th>
                   <th className="p-2 border-r border-slate-300 min-w-[140px]">Diễn Giải</th>
                   <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
                   <th className="p-2 border-r border-slate-300 text-right min-w-[90px] bg-slate-100 text-slate-800">
@@ -905,7 +1364,7 @@ export const Tab8MasterSummary: React.FC = () => {
               <tbody className="divide-y divide-slate-200 font-sans">
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-8 text-center text-slate-400 text-xs italic">
+                    <td colSpan={12} className="p-8 text-center text-slate-400 text-xs italic">
                       Không tìm thấy đơn hàng nào!
                     </td>
                   </tr>
@@ -920,6 +1379,16 @@ export const Tab8MasterSummary: React.FC = () => {
                       </td>
                       <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-800">
                         {r.itemCode}
+                      </td>
+                      <td className="p-2 border-r border-slate-200 text-slate-700">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          r.itemType === 'Bán TP' ? 'bg-indigo-100 text-indigo-800' : 'bg-sky-100 text-sky-800'
+                        }`}>
+                          {r.itemType || 'Thành Phẩm'}
+                        </span>
+                      </td>
+                      <td className="p-2 border-r border-slate-200 text-slate-700 max-w-[150px] truncate" title={r.materialName || r.description}>
+                        {r.materialName || r.description || '-'}
                       </td>
                       <td className="p-2 border-r border-slate-200 text-slate-600 max-w-[180px] truncate" title={r.description}>
                         {r.description}
@@ -964,7 +1433,7 @@ export const Tab8MasterSummary: React.FC = () => {
 
                 {/* Footer Total */}
                 <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-300">
-                  <td colSpan={5} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                  <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
                     TỔNG CỘNG TẤT CẢ ĐƠN HÀNG:
                   </td>
                   <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-slate-900">

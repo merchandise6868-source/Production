@@ -14,11 +14,7 @@ import {
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import * as XLSX from 'xlsx';
 
-interface Tab3DiscrepancyProps {
-  onNavigateToTab4?: () => void;
-}
-
-export const Tab3Discrepancy: React.FC<Tab3DiscrepancyProps> = ({ onNavigateToTab4 }) => {
+export const Tab3Discrepancy: React.FC = () => {
   const {
     currentCustomer,
     activeSizeRun,
@@ -80,7 +76,7 @@ export const Tab3Discrepancy: React.FC<Tab3DiscrepancyProps> = ({ onNavigateToTa
       'STT',
       'Ngày Nhập',
       'Mã PO',
-      'Mã Hàng (TT Code)',
+      'Code Vật tư',
       'Số Phiếu KH',
       'Diễn Giải',
       'ĐVT',
@@ -222,7 +218,7 @@ export const Tab3Discrepancy: React.FC<Tab3DiscrepancyProps> = ({ onNavigateToTa
             <div className="relative w-56">
               <input
                 type="text"
-                placeholder="Tìm PO, mã hàng, số phiếu..."
+                placeholder="Tìm PO, Code Vật tư, số phiếu..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 bg-white focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -287,7 +283,7 @@ export const Tab3Discrepancy: React.FC<Tab3DiscrepancyProps> = ({ onNavigateToTa
                 <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
                 <th className="p-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-slate-500">Ngày Nhập</th>
                 <th className="p-2 border-r border-slate-300 min-w-[105px] bg-slate-100 text-slate-500">Mã PO</th>
-                <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-500">Mã Hàng (TT)</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-500">Code Vật tư</th>
                 <th className="p-2 border-r border-slate-300 min-w-[115px] bg-slate-100 text-slate-500">Số Phiếu KH</th>
                 <th className="p-2 border-r border-slate-300 min-w-[145px] bg-slate-100 text-slate-500">Diễn Giải</th>
                 <th className="p-2 border-r border-slate-300 text-center w-14 bg-slate-100 text-slate-500">ĐVT</th>

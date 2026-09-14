@@ -900,9 +900,27 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           comp: {},
         };
       }
-      const act = currentCustomerActualReceives.find((a) => a.planOrderId === plan.id);
-      const actSizes = act?.sizeQuantities || {};
-      Object.entries(actSizes).forEach(([s, q]) => {
+    });
+
+    // Cộng dồn toàn bộ các lượt nhận thực tế từ Tab 2 (kể cả nhiều ngày, nhiều lần, hàng đơn, hàng bù)
+    currentCustomerActualReceives.forEach((act) => {
+      const plan = currentCustomerPlanOrders.find((p) => p.id === act.planOrderId);
+      const poNum = (act.poNumber || plan?.poNumber || '').trim().toUpperCase();
+      const itemCd = (act.itemCode || plan?.itemCode || '').trim().toUpperCase();
+      if (!poNum) return;
+      const key = `${poNum}__${itemCd}`;
+      if (!groups[key]) {
+        groups[key] = {
+          poNumber: poNum,
+          itemCode: itemCd,
+          description: act.description || plan?.description || `Vật tư ${itemCd}`,
+          unit: act.unit || plan?.unit || 'PRS',
+          received: {},
+          issued: {},
+          comp: {},
+        };
+      }
+      Object.entries(act.sizeQuantities || {}).forEach(([s, q]) => {
         groups[key].received[s] = (groups[key].received[s] || 0) + (Number(q) || 0);
       });
     });
@@ -1039,6 +1057,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       {
         poNumber: string;
         itemCode: string;
+        itemType?: 'Bán TP' | 'Thành Phẩm';
+        materialName?: string;
         unit: string;
         inbound: Record<string, number>;
         delivered: Record<string, number>;
@@ -1052,6 +1072,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         groups[key] = {
           poNumber: rep.poNumber,
           itemCode: rep.itemCode,
+          itemType: 'Thành Phẩm',
+          materialName: rep.detailName || '',
           unit: rep.unit || 'PRS',
           inbound: {},
           delivered: {},
@@ -1070,10 +1092,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         groups[key] = {
           poNumber: del.poNumber,
           itemCode: del.itemCode,
+          itemType: del.itemType || 'Thành Phẩm',
+          materialName: del.materialName || '',
           unit: del.unit || 'PRS',
           inbound: {},
           delivered: {},
         };
+      } else {
+        if (del.itemType) groups[key].itemType = del.itemType;
+        if (del.materialName) groups[key].materialName = del.materialName;
       }
       Object.entries(del.sizeQuantities || {}).forEach(([s, q]) => {
         const num = Number(q) || 0;
@@ -1103,6 +1130,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         customerId: selectedCustomerId,
         poNumber: g.poNumber,
         itemCode: g.itemCode,
+        itemType: g.itemType,
+        materialName: g.materialName,
         unit: g.unit,
         inboundSizes: g.inbound,
         totalInbound,

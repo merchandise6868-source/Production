@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { exportCustomersAndPOsToExcel } from '../../utils/excelExport';
 import { useMessageBox } from '../common/MessageBox';
+import { handleCellArrowNavigation } from '../../utils/tableNavigation';
 
 interface EditablePoRow {
   id: string;
@@ -993,9 +994,11 @@ export const CustomerTab: React.FC = () => {
                         placeholder="VD: PO-101"
                         value={row.poNumber}
                         data-po-idx={rIdx}
+                        data-row-idx={rIdx}
                         data-col-key="poNumber"
                         onChange={(e) => handlePoCellChange(rIdx, 'poNumber', e.target.value)}
                         onKeyDown={(e) => {
+                          handleCellArrowNavigation(e, poGridRef);
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             handleSaveSinglePoRow(rIdx);
@@ -1010,9 +1013,11 @@ export const CustomerTab: React.FC = () => {
                         placeholder="VD: Sneaker Pro"
                         value={row.style}
                         data-po-idx={rIdx}
+                        data-row-idx={rIdx}
                         data-col-key="style"
                         onChange={(e) => handlePoCellChange(rIdx, 'style', e.target.value)}
                         onKeyDown={(e) => {
+                          handleCellArrowNavigation(e, poGridRef);
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             handleSaveSinglePoRow(rIdx);
@@ -1027,9 +1032,11 @@ export const CustomerTab: React.FC = () => {
                         placeholder="DD/MM/YYYY"
                         value={row.orderDate}
                         data-po-idx={rIdx}
+                        data-row-idx={rIdx}
                         data-col-key="orderDate"
                         onChange={(e) => handlePoCellChange(rIdx, 'orderDate', e.target.value)}
                         onKeyDown={(e) => {
+                          handleCellArrowNavigation(e, poGridRef);
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             handleSaveSinglePoRow(rIdx);
@@ -1044,9 +1051,11 @@ export const CustomerTab: React.FC = () => {
                         placeholder="đôi"
                         value={row.unit}
                         data-po-idx={rIdx}
+                        data-row-idx={rIdx}
                         data-col-key="unit"
                         onChange={(e) => handlePoCellChange(rIdx, 'unit', e.target.value)}
                         onKeyDown={(e) => {
+                          handleCellArrowNavigation(e, poGridRef);
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             handleSaveSinglePoRow(rIdx);
@@ -1064,9 +1073,11 @@ export const CustomerTab: React.FC = () => {
                             placeholder="-"
                             value={val !== undefined && val !== null ? val : ''}
                             data-po-idx={rIdx}
+                            data-row-idx={rIdx}
                             data-col-key={`size_${s}`}
                             onChange={(e) => handlePoCellChange(rIdx, `size_${s}`, e.target.value)}
                             onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, poGridRef);
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 handleSaveSinglePoRow(rIdx);
@@ -1086,9 +1097,11 @@ export const CustomerTab: React.FC = () => {
                         placeholder="Ghi chú đơn..."
                         value={row.note}
                         data-po-idx={rIdx}
+                        data-row-idx={rIdx}
                         data-col-key="note"
                         onChange={(e) => handlePoCellChange(rIdx, 'note', e.target.value)}
                         onKeyDown={(e) => {
+                          handleCellArrowNavigation(e, poGridRef);
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             handleSaveSinglePoRow(rIdx);

@@ -19,6 +19,8 @@ import { ExcelPasteModal } from '../common/ExcelPasteModal';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
+import { SearchablePoSelect } from '../common/SearchablePoSelect';
+import { handleCellArrowNavigation } from '../../utils/tableNavigation';
 
 export interface Tab2WorkingRow {
   id: string;
@@ -32,6 +34,7 @@ export interface Tab2WorkingRow {
   planTotalQty: number;
   planSizeQuantities: Record<string, number>;
   sizeQuantities: Record<string, number | ''>;
+  status?: 'Hàng đơn' | 'Hàng bù';
   note: string;
 }
 
@@ -58,6 +61,7 @@ const createNewTab2RowHelper = (
     planTotalQty: 0,
     planSizeQuantities: {},
     sizeQuantities: sq,
+    status: 'Hàng đơn',
     note: '',
   };
 };
@@ -87,7 +91,7 @@ const buildInitialWorkingRows = (
     return {
       id: plan.id,
       isNew: false,
-      receiptDate: plan.receiptDate,
+      receiptDate: existing?.receiptDate || plan.receiptDate,
       poNumber: plan.poNumber,
       itemCode: plan.itemCode,
       voucherCode: plan.voucherCode || '',
@@ -96,6 +100,7 @@ const buildInitialWorkingRows = (
       planTotalQty: plan.totalQty || 0,
       planSizeQuantities: plan.sizeQuantities || {},
       sizeQuantities: sq,
+      status: existing?.status || plan.status || 'Hàng đơn',
       note: existing?.note || '',
     };
   });
@@ -106,6 +111,7 @@ export const Tab2ActualReceive: React.FC = () => {
   const {
     currentCustomer,
     activeSizeRun,
+    currentCustomerPOs,
     currentCustomerPlanOrders,
     currentCustomerActualReceives,
     addPlanOrders,
@@ -425,8 +431,15 @@ export const Tab2ActualReceive: React.FC = () => {
         id: `act-${row.id}`,
         planOrderId: row.id,
         customerId: currentCustomer.id,
+        receiptDate: row.receiptDate || defaultDate,
+        poNumber: row.poNumber.trim(),
+        itemCode: row.itemCode.trim(),
+        voucherCode: row.voucherCode.trim(),
+        description: row.description.trim(),
+        unit: row.unit || 'PRS',
         sizeQuantities: sizeQ,
         totalQty: totalActual,
+        status: row.status || 'Hàng đơn',
         note: row.note.trim() || undefined,
         updatedAt: new Date().toLocaleString('vi-VN'),
       });
@@ -477,6 +490,7 @@ export const Tab2ActualReceive: React.FC = () => {
       { key: 'description', type: 'text' as const },
       { key: 'unit', type: 'unit' as const },
       ...sizes.map((s) => ({ key: `size_${s}`, type: 'size' as const, size: s })),
+      { key: 'status', type: 'text' as const },
       { key: 'note', type: 'note' as const },
     ],
     [sizes]
@@ -674,15 +688,16 @@ export const Tab2ActualReceive: React.FC = () => {
   const handleExportExcel = () => {
     const headers = [
       'STT',
-      'Ngày Nhập',
+      'Ngày Nhận',
       'Mã PO',
-      'Mã Hàng (TT Code)',
+      'Code Vật tư',
       'Số Phiếu KH',
       'Diễn Giải',
       'ĐVT',
       ...sizes.map((s) => `Size ${s}`),
       'Tổng Thực Nhận',
       'SL Phiếu',
+      'Trạng Thái',
       'Ghi Chú',
     ];
 
@@ -697,6 +712,7 @@ export const Tab2ActualReceive: React.FC = () => {
       ...sizes.map((s) => (typeof r.sizeQuantities[s] === 'number' ? r.sizeQuantities[s] : 0)),
       getRowActualTotal(r),
       r.planTotalQty > 0 ? r.planTotalQty : 0,
+      r.status || 'Hàng đơn',
       r.note || '',
     ]);
 
@@ -832,7 +848,7 @@ export const Tab2ActualReceive: React.FC = () => {
           <div className="relative w-64">
             <input
               type="text"
-              placeholder="Tìm PO, mã hàng, số phiếu..."
+              placeholder="Tìm PO, Code Vật tư, số phiếu..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -854,9 +870,9 @@ export const Tab2ActualReceive: React.FC = () => {
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
               <tr>
                 <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
-                <th className="p-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-slate-600">Ngày Nhập</th>
-                <th className="p-2 border-r border-slate-300 min-w-[105px] bg-slate-100 text-slate-600">Mã PO</th>
-                <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-600">Mã Hàng (TT)</th>
+                <th className="p-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-slate-600">Ngày Nhận</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-600">Mã PO</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-600">Code Vật tư</th>
                 <th className="p-2 border-r border-slate-300 min-w-[115px] bg-slate-100 text-slate-600">Số Phiếu KH</th>
                 <th className="p-2 border-r border-slate-300 min-w-[145px] bg-slate-100 text-slate-600">Diễn Giải</th>
                 <th className="p-2 border-r border-slate-300 text-center w-14 bg-slate-100 text-slate-600">ĐVT</th>
@@ -876,6 +892,9 @@ export const Tab2ActualReceive: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[70px] text-right bg-slate-100 text-slate-600">
                   SL PHIẾU
                 </th>
+                <th className="p-2 border-r border-slate-300 min-w-[95px] text-center bg-indigo-50 text-indigo-900">
+                  Trạng Thái
+                </th>
                 <th className="p-2 border-r border-slate-300 min-w-[110px]">Ghi Chú</th>
                 <th className="p-2 text-center w-16">Thao Tác</th>
               </tr>
@@ -883,7 +902,7 @@ export const Tab2ActualReceive: React.FC = () => {
             <tbody className="divide-y divide-slate-200 font-sans">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
+                  <td colSpan={7 + sizes.length + 4} className="p-8 text-center text-slate-400 text-xs italic">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <p>Chưa có dòng dữ liệu thực nhận nào.</p>
                       <button
@@ -904,14 +923,13 @@ export const Tab2ActualReceive: React.FC = () => {
                   return (
                     <tr
                       key={row.id}
-                      onKeyDown={handleKeyDown}
                       className="hover:bg-slate-50 transition-colors"
                     >
                       <td className="p-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
                         {idx + 1}
                       </td>
 
-                      {/* Ngày nhập */}
+                      {/* Ngày nhận */}
                       <td className="p-0 border-r border-slate-200 bg-slate-50/50">
                         <input
                           type="text"
@@ -920,25 +938,32 @@ export const Tab2ActualReceive: React.FC = () => {
                           data-col-key="receiptDate"
                           value={row.receiptDate}
                           onChange={(e) => handleUpdateRowField(row.id, 'receiptDate', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
                           className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-700 whitespace-nowrap"
                         />
                       </td>
 
-                      {/* Mã PO */}
+                      {/* Mã PO (Autocomplete) */}
                       <td className="p-0 border-r border-slate-200 bg-slate-50/50">
-                        <input
-                          type="text"
-                          data-row-id={row.id}
-                          data-row-idx={idx}
-                          data-col-key="poNumber"
+                        <SearchablePoSelect
                           value={row.poNumber}
-                          onChange={(e) => handleUpdateRowField(row.id, 'poNumber', e.target.value.toUpperCase())}
+                          pos={currentCustomerPOs}
+                          rowIdx={idx}
+                          colKey="poNumber"
+                          onChange={(val) => handleUpdateRowField(row.id, 'poNumber', val)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
                           placeholder="Mã PO..."
                           className="w-full h-8 px-2 text-xs font-mono font-bold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-sky-700 uppercase"
                         />
                       </td>
 
-                      {/* Mã Hàng */}
+                      {/* Code Vật tư */}
                       <td className="p-0 border-r border-slate-200 bg-slate-50/50">
                         <input
                           type="text"
@@ -947,7 +972,11 @@ export const Tab2ActualReceive: React.FC = () => {
                           data-col-key="itemCode"
                           value={row.itemCode}
                           onChange={(e) => handleUpdateRowField(row.id, 'itemCode', e.target.value.toUpperCase())}
-                          placeholder="Mã hàng..."
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
+                          placeholder="Code Vật tư..."
                           className="w-full h-8 px-2 text-xs font-mono font-bold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-800 uppercase"
                         />
                       </td>
@@ -961,6 +990,10 @@ export const Tab2ActualReceive: React.FC = () => {
                           data-col-key="voucherCode"
                           value={row.voucherCode}
                           onChange={(e) => handleUpdateRowField(row.id, 'voucherCode', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
                           placeholder="Số phiếu..."
                           className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-600"
                         />
@@ -975,6 +1008,10 @@ export const Tab2ActualReceive: React.FC = () => {
                           data-col-key="description"
                           value={row.description}
                           onChange={(e) => handleUpdateRowField(row.id, 'description', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
                           placeholder="Diễn giải..."
                           className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-600 truncate"
                         />
@@ -989,6 +1026,10 @@ export const Tab2ActualReceive: React.FC = () => {
                           data-col-key="unit"
                           value={row.unit}
                           onChange={(e) => handleUpdateRowField(row.id, 'unit', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
                           className="w-full h-8 px-1 text-center text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-600 font-medium"
                         />
                       </td>
@@ -1010,6 +1051,10 @@ export const Tab2ActualReceive: React.FC = () => {
                               min="0"
                               value={val !== undefined ? val : ''}
                               onChange={(e) => handleUpdateSizeQty(row.id, s, e.target.value)}
+                              onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
+                                if (e.key === 'Enter') handleSaveAllActuals();
+                              }}
                               placeholder="-"
                               className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-slate-900 border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                             />
@@ -1027,6 +1072,28 @@ export const Tab2ActualReceive: React.FC = () => {
                         {row.planTotalQty > 0 ? row.planTotalQty.toLocaleString('vi-VN') : (row.isNew ? '-' : '0')}
                       </td>
 
+                      {/* Trạng Thái (Hàng đơn / Hàng bù) */}
+                      <td className="p-0 border-r border-slate-200">
+                        <select
+                          data-row-idx={idx}
+                          data-col-key="status"
+                          value={row.status || 'Hàng đơn'}
+                          onChange={(e) =>
+                            handleUpdateRowField(row.id, 'status', e.target.value as 'Hàng đơn' | 'Hàng bù')
+                          }
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
+                          className={`w-full h-8 px-1 text-xs font-semibold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white cursor-pointer ${
+                            row.status === 'Hàng bù' ? 'text-amber-700 bg-amber-50/60' : 'text-slate-700'
+                          }`}
+                        >
+                          <option value="Hàng đơn">Hàng đơn</option>
+                          <option value="Hàng bù">Hàng bù</option>
+                        </select>
+                      </td>
+
                       {/* Note */}
                       <td className="p-0 border-r border-slate-200">
                         <input
@@ -1036,6 +1103,10 @@ export const Tab2ActualReceive: React.FC = () => {
                           data-col-key="note"
                           value={row.note}
                           onChange={(e) => handleUpdateRowField(row.id, 'note', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
                           placeholder="Ghi chú thực nhận..."
                           className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
                         />
@@ -1091,7 +1162,7 @@ export const Tab2ActualReceive: React.FC = () => {
                 <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-xs text-emerald-900">
                   {actualGrandTotal > 0 ? actualGrandTotal.toLocaleString('vi-VN') : '0'}
                 </td>
-                <td colSpan={3} className="p-2 text-slate-500 text-[11px] italic">
+                <td colSpan={4} className="p-2 text-slate-500 text-[11px] italic">
                   Đồng bộ sang Tab 5 & Tab 6 (Tồn đầu kỳ thực nhận)
                 </td>
               </tr>
@@ -1119,7 +1190,7 @@ export const Tab2ActualReceive: React.FC = () => {
         columnsSample={[
           'Ngày',
           'Mã PO',
-          'Mã Hàng',
+          'Code Vật tư',
           'Số Phiếu',
           'Diễn Giải',
           'ĐVT',

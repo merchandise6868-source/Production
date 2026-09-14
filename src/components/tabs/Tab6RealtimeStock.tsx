@@ -21,8 +21,10 @@ export const Tab6RealtimeStock: React.FC = () => {
     currentCustomer,
     activeSizeRun,
     currentCustomerRealtimeStock,
+    currentCustomerActualReceives,
     currentCustomerProductionIssues,
     currentCustomerProductionReports,
+    currentCustomerPlanOrders,
     updateStockCompensation,
   } = useInventory();
 
@@ -34,10 +36,20 @@ export const Tab6RealtimeStock: React.FC = () => {
   }, [activeSizeRun]);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isDetailView, setIsDetailView] = useState<boolean>(false);
   const [activeView, setActiveView] = useState<'MATRIX' | 'MOVEMENTS'>('MATRIX');
   const [showPrintModal, setShowPrintModal] = useState(false);
 
-  // Filtered matrix items
+  // Helper: Get list of material names (Tên vật tư) in that PO
+  const getPoMaterials = (poNumber: string) => {
+    const matching = currentCustomerPlanOrders.filter(
+      (p) => p.poNumber.toUpperCase() === poNumber.toUpperCase()
+    );
+    const names = matching.map((p) => p.description || p.itemCode).filter(Boolean);
+    return Array.from(new Set(names));
+  };
+
+  // Filtered matrix items (Standard 4-row view)
   const filteredStockItems = useMemo(() => {
     if (!searchQuery.trim()) return currentCustomerRealtimeStock;
     const q = searchQuery.toLowerCase();
@@ -48,6 +60,30 @@ export const Tab6RealtimeStock: React.FC = () => {
         item.description.toLowerCase().includes(q)
     );
   }, [currentCustomerRealtimeStock, searchQuery]);
+
+  // Detail mode: All receipts for searched PO
+  const detailReceipts = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return currentCustomerActualReceives.filter(
+      (a) =>
+        a.poNumber?.toLowerCase().includes(q) ||
+        a.itemCode?.toLowerCase().includes(q) ||
+        a.description?.toLowerCase().includes(q)
+    );
+  }, [currentCustomerActualReceives, searchQuery]);
+
+  // Detail mode: All production issues for searched PO
+  const detailIssues = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return currentCustomerProductionIssues.filter(
+      (p) =>
+        p.poNumber.toLowerCase().includes(q) ||
+        p.itemCode.toLowerCase().includes(q) ||
+        (p.detailName && p.detailName.toLowerCase().includes(q))
+    );
+  }, [currentCustomerProductionIssues, searchQuery]);
 
   // Overall totals
   const overallTotals = useMemo(() => {
@@ -68,6 +104,59 @@ export const Tab6RealtimeStock: React.FC = () => {
 
   // Export Excel
   const handleExportExcel = () => {
+    if (isDetailView && searchQuery.trim()) {
+      if (detailReceipts.length === 0 && detailIssues.length === 0) {
+        alert('Không có dữ liệu chi tiết để xuất.');
+        return;
+      }
+      const headers = [
+        'STT',
+        'Ngày',
+        'Mã PO',
+        'Code Vật tư',
+        'Tên Vật Tư / Diễn Giải',
+        'ĐVT',
+        'Phân Loại Luồng',
+        ...sizes.map((s) => `Size ${s}`),
+        'Tổng Cộng',
+        'Trạng Thái',
+      ];
+      const dataRows: any[] = [];
+      detailReceipts.forEach((r, idx) => {
+        dataRows.push([
+          idx + 1,
+          r.receiptDate || '',
+          r.poNumber,
+          r.itemCode,
+          r.description || '',
+          r.unit || 'PRS',
+          `1. Thực nhận (Phiếu ${r.voucherCode || 'N/A'})`,
+          ...sizes.map((s) => r.sizeQuantities[s] || 0),
+          r.totalQty,
+          r.status || 'Hàng đơn',
+        ]);
+      });
+      detailIssues.forEach((i, idx) => {
+        dataRows.push([
+          detailReceipts.length + idx + 1,
+          i.issueDate || '',
+          i.poNumber,
+          i.itemCode,
+          i.detailName || 'Chi tiết SX',
+          i.unit || 'PRS',
+          `2. Xuất SX (${i.lineId})`,
+          ...sizes.map((s) => i.sizeQuantities[s] || 0),
+          i.totalQty,
+          'Xuất SX',
+        ]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `ChiTiet_${searchQuery}`);
+      XLSX.writeFile(wb, `Tab5_ChiTiet_${searchQuery}_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+      return;
+    }
+
     if (filteredStockItems.length === 0) {
       alert('Không có dữ liệu để xuất.');
       return;
@@ -75,7 +164,7 @@ export const Tab6RealtimeStock: React.FC = () => {
     const headers = [
       'STT',
       'Mã PO',
-      'Mã Hàng (TT Code)',
+      'Code Vật tư',
       'Diễn Giải',
       'ĐVT',
       'Phân Loại Luồng Dữ Liệu',
@@ -261,93 +350,334 @@ export const Tab6RealtimeStock: React.FC = () => {
 
         {/* Search Toolbar */}
         <div className="p-2 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="relative w-64">
-            <input
-              type="text"
-              placeholder="Tìm PO, mã hàng, tên vật tư..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-sky-500 focus:outline-none"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
+          <div className="flex items-center gap-2">
+            <div className="relative w-64">
+              <input
+                type="text"
+                placeholder="Tìm PO, Code Vật tư, tên vật tư..."
+                value={searchQuery}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSearchQuery(v);
+                  if (!v.trim()) setIsDetailView(false);
+                }}
+                className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
+            </div>
+
+            {/* Nút Xem Chi Tiết cạnh khung tìm kiếm */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!searchQuery.trim()) {
+                  alert('Vui lòng nhập mã PO vào ô tìm kiếm trước khi bấm Xem chi tiết!');
+                  return;
+                }
+                setIsDetailView((prev) => !prev);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold border transition cursor-pointer ${
+                isDetailView
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-2xs'
+                  : 'bg-white hover:bg-slate-100 text-sky-700 border-sky-300 shadow-2xs'
+              }`}
+              title={
+                isDetailView
+                  ? 'Quay lại dạng tổng hợp 4 dòng'
+                  : 'Hiển thị thêm cột Ngày, chi tiết từng lần thực nhận và từng lần xuất sản xuất'
+              }
+            >
+              {isDetailView ? (
+                <>
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>📊 Dạng Tổng Hợp</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-3.5 h-3.5" />
+                  <span>👁️ Xem Chi Tiết</span>
+                </>
+              )}
+            </button>
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            <span>Hiển thị chi tiết 4 dòng cho mỗi mã hàng: Thực nhận ➔ Xuất SX ➔ Xuất bù ➔ Tồn kho</span>
+            {isDetailView ? (
+              <span className="text-amber-700 font-semibold">
+                Đang xem chi tiết theo ngày cho mã PO "{searchQuery}" • Xóa mã PO để quay lại tổng hợp
+              </span>
+            ) : (
+              <span>Hiển thị chi tiết 4 dòng cho mỗi Code Vật tư: Thực nhận ➔ Xuất SX ➔ Xuất bù ➔ Tồn kho</span>
+            )}
           </div>
         </div>
 
-        {/* Detailed 4-row Material Flow Matrix Table */}
-        <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
-          <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
-              <tr>
-                <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
-                <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
-                <th className="p-2 border-r border-slate-300 min-w-[125px]">Mã Hàng (TT)</th>
-                <th className="p-2 border-r border-slate-300 min-w-[140px]">Diễn Giải</th>
-                <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
-                <th className="p-2 border-r border-slate-300 min-w-[170px]">Luồng Vật Tư</th>
-
-                {sizes.map((s) => (
-                  <th
-                    key={s}
-                    className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-slate-100 text-slate-800"
-                  >
-                    Size {s}
-                  </th>
-                ))}
-
-                <th className="p-2 border-r border-slate-300 min-w-[85px] text-right font-bold bg-slate-100 text-slate-900">
-                  TỔNG CỘNG
-                </th>
-                <th className="p-2 text-center min-w-[95px]">Trạng Thái</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 font-sans">
-              {filteredStockItems.length === 0 ? (
+        {/* Detailed Table (Either Detail View with Date Column OR Standard 4-row View) */}
+        {isDetailView && searchQuery.trim() ? (
+          <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
                 <tr>
-                  <td colSpan={7 + sizes.length + 1} className="p-8 text-center text-slate-400 text-xs italic">
-                    Chưa có vật tư nào được nhập vào kho cho khách hàng này.
-                  </td>
-                </tr>
-              ) : (
-                filteredStockItems.map((item, idx) => (
-                  <React.Fragment key={item.key}>
-                    {/* Row 1: Thực Nhận (Tab 2) */}
-                    <tr className="bg-white hover:bg-slate-50/50">
-                      <td
-                        rowSpan={4}
-                        className="p-2 border-r border-slate-300 text-center font-mono text-[11px] text-slate-400 bg-slate-50 font-bold align-middle"
-                      >
-                        {idx + 1}
-                      </td>
-                      <td rowSpan={4} className="p-2 border-r border-slate-300 font-mono font-bold text-sky-700 align-middle">
-                        {item.poNumber}
-                      </td>
-                      <td rowSpan={4} className="p-2 border-r border-slate-300 font-mono font-bold text-slate-900 align-middle">
-                        {item.itemCode}
-                      </td>
-                      <td rowSpan={4} className="p-2 border-r border-slate-300 text-slate-700 align-middle">
-                        {item.description}
-                      </td>
-                      <td rowSpan={4} className="p-2 border-r border-slate-300 text-center text-slate-500 align-middle">
-                        {item.unit}
-                      </td>
+                  <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[95px] bg-amber-100/70 text-amber-950 font-bold">Ngày</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[140px]">Tên Vật Tư</th>
+                  <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[190px]">Phân Loại / Chi Tiết</th>
 
-                      {/* Sub-row 1 */}
-                      <td className="p-1.5 border-r border-slate-200 text-slate-600 font-medium flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        <span>1. Thực Nhận (Tab 2)</span>
+                  {sizes.map((s) => (
+                    <th
+                      key={s}
+                      className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-slate-100 text-slate-800"
+                    >
+                      Size {s}
+                    </th>
+                  ))}
+
+                  <th className="p-2 border-r border-slate-300 min-w-[85px] text-right font-bold bg-slate-100 text-slate-900">
+                    TỔNG CỘNG
+                  </th>
+                  <th className="p-2 text-center min-w-[95px]">Trạng Thái</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 font-sans">
+                {detailReceipts.length === 0 && detailIssues.length === 0 ? (
+                  <tr>
+                    <td colSpan={8 + sizes.length + 1} className="p-8 text-center text-slate-400 text-xs italic">
+                      Không tìm thấy giao dịch nhập/xuất nào cho PO "{searchQuery}".
+                    </td>
+                  </tr>
+                ) : (
+                  <>
+                    {/* 1. Các lần Thực Nhận từ Tab 2 */}
+                    {detailReceipts.map((rec, rIdx) => (
+                      <tr key={`rec-${rec.id}-${rIdx}`} className="bg-white hover:bg-emerald-50/30 transition">
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-[11px] text-slate-400">
+                          {rIdx + 1}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-semibold text-amber-900 bg-amber-50/40">
+                          {rec.receiptDate || '-'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700">
+                          {rec.poNumber}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-900">
+                          {rec.itemCode}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-slate-700">
+                          {rec.description || '-'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-500">
+                          {rec.unit || 'PRS'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-slate-700 font-medium">
+                          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5"></span>
+                          <span>1. Thực nhận (Phiếu: {rec.voucherCode || 'N/A'})</span>
+                        </td>
+                        {sizes.map((s) => {
+                          const q = rec.sizeQuantities[s] || 0;
+                          return (
+                            <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-slate-800">
+                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-slate-900 bg-slate-50/50">
+                          {rec.totalQty.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="p-2 text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            rec.status === 'Hàng bù' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {rec.status || 'Hàng đơn'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* 2. Các lần Xuất Sản Xuất từ Tab 6 */}
+                    {detailIssues.map((iss, iIdx) => (
+                      <tr key={`iss-${iss.id}-${iIdx}`} className="bg-sky-50/20 hover:bg-sky-50/40 transition">
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-[11px] text-slate-400">
+                          {detailReceipts.length + iIdx + 1}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-semibold text-amber-900 bg-amber-50/40">
+                          {iss.issueDate || '-'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700">
+                          {iss.poNumber}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-900">
+                          {iss.itemCode}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-slate-700">
+                          {iss.detailName || 'Chi tiết SX'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-500">
+                          {iss.unit || 'PRS'}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-sky-800 font-medium">
+                          <span className="inline-block w-2 h-2 rounded-full bg-sky-500 mr-1.5"></span>
+                          <span>2. Xuất SX ({iss.lineId})</span>
+                        </td>
+                        {sizes.map((s) => {
+                          const q = iss.sizeQuantities[s] || 0;
+                          return (
+                            <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-sky-900">
+                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-sky-950 bg-sky-100/50">
+                          {iss.totalQty.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="p-2 text-center">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800">
+                            Xuất SX
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Dòng Tổng Kết Tồn Kho Cho PO */}
+                    <tr className="bg-emerald-100/60 font-bold border-t-2 border-emerald-400">
+                      <td colSpan={2} className="p-2 border-r border-slate-300 text-center font-mono text-[11px] text-emerald-950">
+                        TỒN HIỆN TẠI
+                      </td>
+                      <td className="p-2 border-r border-slate-300 font-mono font-bold text-sky-800">
+                        {searchQuery}
+                      </td>
+                      <td colSpan={3} className="p-2 border-r border-slate-300 text-emerald-950 uppercase text-[11px]">
+                        TỒN KHO CÒN LẠI (THỰC NHẬN - XUẤT SX)
+                      </td>
+                      <td className="p-2 border-r border-slate-300 font-bold text-emerald-950">
+                        Số dư khả dụng
                       </td>
                       {sizes.map((s) => {
-                        const q = item.receivedSizes[s] || 0;
+                        const totRec = detailReceipts.reduce((sum, r) => sum + (r.sizeQuantities[s] || 0), 0);
+                        const totIss = detailIssues.reduce((sum, i) => sum + (i.sizeQuantities[s] || 0), 0);
+                        const net = totRec - totIss;
                         return (
-                          <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-slate-700">
-                            {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                          <td key={s} className="p-2 border-r border-slate-300 text-center font-mono font-bold text-xs text-emerald-950">
+                            {net !== 0 ? net.toLocaleString('vi-VN') : '0'}
                           </td>
                         );
                       })}
+                      {(() => {
+                        const totRec = detailReceipts.reduce((sum, r) => sum + r.totalQty, 0);
+                        const totIss = detailIssues.reduce((sum, i) => sum + i.totalQty, 0);
+                        const grandNet = totRec - totIss;
+                        return (
+                          <td className="p-2 border-r border-slate-300 text-right font-mono font-extrabold text-xs text-emerald-950 bg-emerald-200/80">
+                            {grandNet.toLocaleString('vi-VN')}
+                          </td>
+                        );
+                      })()}
+                      <td className="p-2 text-center">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shadow-2xs">
+                          Khả dụng
+                        </span>
+                      </td>
+                    </tr>
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300">
+                <tr>
+                  <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[140px]">Diễn Giải (Tên VT)</th>
+                  <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
+                  <th className="p-2 border-r border-slate-300 min-w-[170px]">Luồng Vật Tư</th>
+
+                  {sizes.map((s) => (
+                    <th
+                      key={s}
+                      className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-slate-100 text-slate-800"
+                    >
+                      Size {s}
+                    </th>
+                  ))}
+
+                  <th className="p-2 border-r border-slate-300 min-w-[85px] text-right font-bold bg-slate-100 text-slate-900">
+                    TỔNG CỘNG
+                  </th>
+                  <th className="p-2 text-center min-w-[95px]">Trạng Thái</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 font-sans">
+                {filteredStockItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={7 + sizes.length + 1} className="p-8 text-center text-slate-400 text-xs italic">
+                      Chưa có vật tư nào được nhập vào kho cho khách hàng này.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredStockItems.map((item, idx) => (
+                    <React.Fragment key={item.key}>
+                      {/* Row 1: Thực Nhận (Tab 2) */}
+                      <tr className="bg-white hover:bg-slate-50/50">
+                        <td
+                          rowSpan={4}
+                          className="p-2 border-r border-slate-300 text-center font-mono text-[11px] text-slate-400 bg-slate-50 font-bold align-middle"
+                        >
+                          {idx + 1}
+                        </td>
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 font-mono font-bold text-sky-700 align-middle">
+                          {item.poNumber}
+                        </td>
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 font-mono font-bold text-slate-900 align-middle">
+                          {item.itemCode}
+                        </td>
+                        {/* Dropdown chọn Tên Vật Tư trong PO đó */}
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 text-slate-700 align-middle">
+                          {(() => {
+                            const materials = getPoMaterials(item.poNumber);
+                            if (materials.length > 0) {
+                              return (
+                                <select
+                                  value={item.description}
+                                  onChange={() => {}}
+                                  className="w-full text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:ring-1 focus:ring-sky-500 font-medium text-slate-800 cursor-pointer"
+                                >
+                                  {materials.map((m) => (
+                                    <option key={m} value={m}>
+                                      {m}
+                                    </option>
+                                  ))}
+                                  {!materials.includes(item.description) && item.description && (
+                                    <option value={item.description}>{item.description}</option>
+                                  )}
+                                </select>
+                              );
+                            }
+                            return <span className="font-medium">{item.description || '-'}</span>;
+                          })()}
+                        </td>
+                        <td rowSpan={4} className="p-2 border-r border-slate-300 text-center text-slate-500 align-middle">
+                          {item.unit}
+                        </td>
+
+                        {/* Sub-row 1 */}
+                        <td className="p-1.5 border-r border-slate-200 text-slate-600 font-medium flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          <span>1. Thực Nhận (Tab 2)</span>
+                        </td>
+                        {sizes.map((s) => {
+                          const q = item.receivedSizes[s] || 0;
+                          return (
+                            <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-slate-700">
+                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                            </td>
+                          );
+                        })}
                       <td className="p-1.5 border-r border-slate-200 text-right font-mono font-bold text-slate-800 bg-slate-50/50">
                         {item.totalReceived.toLocaleString('vi-VN')}
                       </td>
@@ -496,6 +826,7 @@ export const Tab6RealtimeStock: React.FC = () => {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Footer info bar */}
         <div className="p-2 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500">

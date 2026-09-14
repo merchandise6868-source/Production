@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { FinishedGoodsDeliveryRow, FinishedGoodsStockItem } from '../../types';
 import { getCurrentDateFormatted } from '../../utils/dateUtils';
@@ -18,12 +18,16 @@ import {
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
+import { SearchablePoSelect } from '../common/SearchablePoSelect';
+import { handleCellArrowNavigation } from '../../utils/tableNavigation';
 
 export const Tab8FinishedGoods: React.FC = () => {
   const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
+    currentCustomerPOs,
+    currentCustomerPlanOrders,
     currentCustomerFinishedGoodsStock,
     currentCustomerFinishedGoodsDeliveries,
     addFinishedGoodsDelivery,
@@ -39,6 +43,8 @@ export const Tab8FinishedGoods: React.FC = () => {
     return ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
   }, [activeSizeRun]);
 
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedForPrint, setSelectedForPrint] = useState<FinishedGoodsDeliveryRow | null>(null);
   const [showStockPrintModal, setShowStockPrintModal] = useState(false);
@@ -48,6 +54,41 @@ export const Tab8FinishedGoods: React.FC = () => {
 
   // Map các dòng soạn đợt xuất mới theo từng PO (item.key = poNumber__itemCode)
   const [draftDeliveries, setDraftDeliveries] = useState<Record<string, FinishedGoodsDeliveryRow | null>>({});
+
+  // Dòng soạn đợt xuất mới ở thanh công cụ (cho bất kỳ PO nào)
+  const [showGlobalNewBatch, setShowGlobalNewBatch] = useState(false);
+  const [globalNewBatch, setGlobalNewBatch] = useState<{
+    poNumber: string;
+    itemCode: string;
+    itemType: 'Bán TP' | 'Thành Phẩm';
+    materialName: string;
+    deliveryDate: string;
+    deliveryVoucher: string;
+    receiver: string;
+    unit: string;
+    sizeQuantities: Record<string, number | ''>;
+    note: string;
+  }>({
+    poNumber: '',
+    itemCode: '',
+    itemType: 'Thành Phẩm',
+    materialName: '',
+    deliveryDate: defaultDate,
+    deliveryVoucher: '',
+    receiver: '',
+    unit: 'PRS',
+    sizeQuantities: {},
+    note: '',
+  });
+
+  // Helper lấy danh sách tên vật tư có trong PO đó
+  const getPoMaterials = (poNumber: string) => {
+    const matching = currentCustomerPlanOrders.filter(
+      (p) => p.poNumber.toUpperCase() === poNumber.toUpperCase()
+    );
+    const materials = matching.map((p) => p.description || p.itemCode).filter(Boolean);
+    return Array.from(new Set(materials));
+  };
 
   // Helper lấy danh sách các đợt xuất đã lưu của 1 PO cụ thể
   const getPoDeliveries = (item: FinishedGoodsStockItem): FinishedGoodsDeliveryRow[] => {
@@ -65,12 +106,16 @@ export const Tab8FinishedGoods: React.FC = () => {
       emptySq[s] = 0;
     });
 
+    const poMats = getPoMaterials(item.poNumber);
+
     return {
       id: `draft-del-${Date.now()}-${item.key}-${Math.random().toString(36).slice(2, 6)}`,
       customerId: currentCustomer?.id || '',
       deliveryDate: defaultDate,
       poNumber: item.poNumber,
       itemCode: item.itemCode,
+      itemType: item.itemType || 'Thành Phẩm',
+      materialName: item.materialName || (poMats.length > 0 ? poMats[0] : ''),
       deliveryVoucher: `HD-${item.poNumber}-${String(batchNum).padStart(2, '0')}`,
       receiver: currentCustomer?.name || 'Khách hàng',
       unit: item.unit || 'PRS',
@@ -140,6 +185,92 @@ export const Tab8FinishedGoods: React.FC = () => {
     setDraftDeliveries((prev) => ({ ...prev, [itemKey]: null }));
   };
 
+  // Mở form đợt mới toàn cục (ở thanh công cụ)
+  const handleOpenGlobalNewBatch = () => {
+    const firstPo = currentCustomerPlanOrders[0]?.poNumber || currentCustomerPOs[0]?.poNumber || '';
+    const matchingPlan = currentCustomerPlanOrders.find((p) => p.poNumber === firstPo);
+    const mats = firstPo ? getPoMaterials(firstPo) : [];
+    const sq: Record<string, number | ''> = {};
+    sizes.forEach((s) => {
+      sq[s] = '';
+    });
+
+    setGlobalNewBatch({
+      poNumber: firstPo,
+      itemCode: matchingPlan?.itemCode || '',
+      itemType: 'Thành Phẩm',
+      materialName: mats[0] || matchingPlan?.description || '',
+      deliveryDate: defaultDate,
+      deliveryVoucher: firstPo ? `HD-${firstPo}-01` : 'HD-01',
+      receiver: currentCustomer?.name || 'Khách hàng',
+      unit: matchingPlan?.unit || 'PRS',
+      sizeQuantities: sq,
+      note: 'Xuất đợt mới',
+    });
+    setShowGlobalNewBatch(true);
+  };
+
+  const handleGlobalPoChange = (po: string) => {
+    const matchingPlan = currentCustomerPlanOrders.find((p) => p.poNumber.toUpperCase() === po.toUpperCase());
+    const mats = getPoMaterials(po);
+    setGlobalNewBatch((prev) => ({
+      ...prev,
+      poNumber: po,
+      itemCode: matchingPlan?.itemCode || prev.itemCode,
+      unit: matchingPlan?.unit || prev.unit,
+      materialName: mats[0] || matchingPlan?.description || '',
+      deliveryVoucher: po ? `HD-${po}-01` : prev.deliveryVoucher,
+    }));
+  };
+
+  const handleSaveGlobalNewBatch = () => {
+    if (!currentCustomer) return;
+    if (!globalNewBatch.poNumber.trim()) {
+      alert('Vui lòng chọn Mã PO!', 'Thiếu thông tin', 'warning');
+      return;
+    }
+    if (!globalNewBatch.deliveryVoucher.trim()) {
+      alert('Vui lòng nhập Số Hóa Đơn / Phiếu Xuất!', 'Thiếu thông tin', 'warning');
+      return;
+    }
+
+    const cleanedSizes: Record<string, number> = {};
+    let total = 0;
+    sizes.forEach((s) => {
+      const v = typeof globalNewBatch.sizeQuantities[s] === 'number' ? Number(globalNewBatch.sizeQuantities[s]) : 0;
+      if (v > 0) {
+        cleanedSizes[s] = v;
+        total += v;
+      }
+    });
+
+    if (total <= 0) {
+      alert('Vui lòng nhập số lượng xuất cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
+      return;
+    }
+
+    const finalDelivery: FinishedGoodsDeliveryRow = {
+      id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      customerId: currentCustomer.id,
+      deliveryDate: globalNewBatch.deliveryDate.trim() || defaultDate,
+      poNumber: globalNewBatch.poNumber.trim().toUpperCase(),
+      itemCode: globalNewBatch.itemCode.trim().toUpperCase() || 'TP',
+      itemType: globalNewBatch.itemType || 'Thành Phẩm',
+      materialName: globalNewBatch.materialName || undefined,
+      deliveryVoucher: globalNewBatch.deliveryVoucher.trim().toUpperCase(),
+      receiver: globalNewBatch.receiver || currentCustomer.name || 'Khách hàng',
+      unit: globalNewBatch.unit || 'PRS',
+      sizeQuantities: cleanedSizes,
+      totalQty: total,
+      note: globalNewBatch.note || `Xuất giao đợt ${globalNewBatch.deliveryVoucher}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    addFinishedGoodsDelivery(finalDelivery);
+    setShowGlobalNewBatch(false);
+    toast(`🔒 Đã lưu đợt xuất mới ${finalDelivery.deliveryVoucher} cho PO ${finalDelivery.poNumber} (${total.toLocaleString('vi-VN')} đôi)!`);
+  };
+
   // Lưu đợt xuất mới và khóa dòng tại chỗ
   const handleSaveDraftDelivery = (item: FinishedGoodsStockItem) => {
     if (!currentCustomer) return;
@@ -183,21 +314,14 @@ export const Tab8FinishedGoods: React.FC = () => {
       }
     });
 
-    if (hasOverStock) {
-      alert(
-        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất.`,
-        'Vượt Tồn Kho Thành Phẩm',
-        'danger'
-      );
-      return;
-    }
-
     const finalDelivery: FinishedGoodsDeliveryRow = {
       id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       customerId: currentCustomer.id,
       deliveryDate: draft.deliveryDate.trim() || defaultDate,
       poNumber: item.poNumber,
       itemCode: item.itemCode,
+      itemType: draft.itemType || 'Thành Phẩm',
+      materialName: draft.materialName || undefined,
       deliveryVoucher: draft.deliveryVoucher.trim().toUpperCase(),
       receiver: draft.receiver || currentCustomer.name || 'Khách hàng',
       unit: item.unit || 'PRS',
@@ -206,6 +330,18 @@ export const Tab8FinishedGoods: React.FC = () => {
       note: draft.note || `Xuất giao đợt ${draft.deliveryVoucher}`,
       createdAt: new Date().toISOString(),
     };
+
+    if (hasOverStock) {
+      confirm(
+        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nBạn có muốn tiếp tục lưu đợt xuất này không?`,
+        () => {
+          addFinishedGoodsDelivery(finalDelivery);
+          setDraftDeliveries((prev) => ({ ...prev, [item.key]: null }));
+          toast(`🔒 Đã lưu & khóa đợt xuất ${finalDelivery.deliveryVoucher} (${total.toLocaleString('vi-VN')} đôi)!`);
+        }
+      );
+      return;
+    }
 
     addFinishedGoodsDelivery(finalDelivery);
     setDraftDeliveries((prev) => ({ ...prev, [item.key]: null }));
@@ -306,21 +442,30 @@ export const Tab8FinishedGoods: React.FC = () => {
       }
     });
 
-    if (hasOverStock) {
-      alert(
-        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất.`,
-        'Vượt Tồn Kho Thành Phẩm',
-        'danger'
-      );
-      return;
-    }
-
     const updated: FinishedGoodsDeliveryRow = {
       ...editObj,
+      itemType: editObj.itemType || 'Thành Phẩm',
+      materialName: editObj.materialName || undefined,
       deliveryVoucher: editObj.deliveryVoucher.trim().toUpperCase(),
       sizeQuantities: cleanedSizes,
       totalQty: total,
     };
+
+    if (hasOverStock) {
+      confirm(
+        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nBạn có muốn tiếp tục cập nhật đợt xuất này không?`,
+        () => {
+          updateFinishedGoodsDelivery(updated);
+          setEditingDeliveries((prev) => {
+            const next = { ...prev };
+            delete next[deliveryId];
+            return next;
+          });
+          toast(`🔒 Đã cập nhật & khóa đợt xuất ${updated.deliveryVoucher}!`);
+        }
+      );
+      return;
+    }
 
     updateFinishedGoodsDelivery(updated);
     setEditingDeliveries((prev) => {
@@ -442,7 +587,9 @@ export const Tab8FinishedGoods: React.FC = () => {
     const headers = [
       'STT',
       'Mã PO',
-      'Mã Hàng (Style)',
+      'Code Vật tư',
+      'Loại',
+      'Tên Vật tư',
       'ĐVT',
       'Chỉ Số Thành Phẩm',
       'Ngày Xuất',
@@ -467,6 +614,8 @@ export const Tab8FinishedGoods: React.FC = () => {
         idx + 1,
         item.poNumber,
         item.itemCode,
+        'Thành Phẩm',
+        item.materialName || '-',
         item.unit,
         '1. Nhập kho TP (từ Chuyền 1,2,3)',
         '-',
@@ -482,6 +631,8 @@ export const Tab8FinishedGoods: React.FC = () => {
           '',
           '',
           '',
+          del.itemType || 'Thành Phẩm',
+          del.materialName || '-',
           '',
           `2.${dIdx + 1}. Xuất đợt ${dIdx + 1}`,
           del.deliveryDate,
@@ -498,6 +649,8 @@ export const Tab8FinishedGoods: React.FC = () => {
           '',
           '',
           '',
+          '-',
+          '-',
           '',
           'Tổng cộng các đợt đã xuất',
           '-',
@@ -513,6 +666,8 @@ export const Tab8FinishedGoods: React.FC = () => {
         '',
         '',
         '',
+        '-',
+        '-',
         '',
         '3. TỒN KHO THÀNH PHẨM HIỆN TẠI',
         '-',
@@ -539,7 +694,7 @@ export const Tab8FinishedGoods: React.FC = () => {
         voucherCode: selectedForPrint.deliveryVoucher,
         poNumber: selectedForPrint.poNumber,
         code: selectedForPrint.itemCode,
-        description: `Hóa đơn / Phiếu xuất giao thành phẩm cho ${selectedForPrint.receiver} (${selectedForPrint.note || 'Theo đơn đặt hàng'})`,
+        description: `Hóa đơn / Phiếu xuất giao [${selectedForPrint.itemType || 'Thành Phẩm'}] ${selectedForPrint.materialName ? `- VT: ${selectedForPrint.materialName} ` : ''}cho ${selectedForPrint.receiver} (${selectedForPrint.note || 'Theo đơn đặt hàng'})`,
         unit: selectedForPrint.unit,
         sizeQuantities: selectedForPrint.sizeQuantities,
         totalQty: selectedForPrint.totalQty,
@@ -598,7 +753,7 @@ export const Tab8FinishedGoods: React.FC = () => {
             <div className="relative w-40 sm:w-52">
               <input
                 type="text"
-                placeholder="Tìm PO, mã hàng..."
+                placeholder="Tìm PO, Code Vật tư..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-white"
@@ -625,17 +780,173 @@ export const Tab8FinishedGoods: React.FC = () => {
               <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Xuất Excel Tồn TP</span>
             </button>
+
+            {/* Nút thêm đợt xuất mới cho bất kỳ PO nào */}
+            <button
+              type="button"
+              onClick={handleOpenGlobalNewBatch}
+              className="inline-flex items-center gap-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold px-3 py-1.5 rounded transition shadow-2xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-amber-700" />
+              <span>+ Đợt Mới (PO Mới)</span>
+            </button>
           </div>
         </div>
 
+        {/* KHUNG SOẠN ĐỢT XUẤT MỚI (GLOBAL DRAFT ROW DÀNH CHO BẤT KỲ PO NÀO) */}
+        {showGlobalNewBatch && (
+          <div className="p-3 bg-amber-50/70 border-b border-amber-300">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                <PackageCheck className="w-4 h-4 text-amber-700" />
+                <span>SOẠN ĐỢT XUẤT THÀNH PHẨM MỚI (TÙY CHỌN PO &amp; VẬT TƯ)</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveGlobalNewBatch}
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Lưu Đợt Xuất</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGlobalNewBatch(false)}
+                  className="p-1 text-slate-500 hover:text-rose-600 rounded cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 mb-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">MÃ PO *</label>
+                <SearchablePoSelect
+                  value={globalNewBatch.poNumber}
+                  onChange={handleGlobalPoChange}
+                  placeholder="Chọn PO..."
+                  className="w-full text-xs font-mono font-bold uppercase text-sky-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">CODE VẬT TƯ</label>
+                <input
+                  type="text"
+                  value={globalNewBatch.itemCode}
+                  onChange={(e) => setGlobalNewBatch((p) => ({ ...p, itemCode: e.target.value }))}
+                  placeholder="Code Vật tư"
+                  className="w-full h-8 px-2 text-xs font-mono font-bold bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">LOẠI *</label>
+                <select
+                  value={globalNewBatch.itemType}
+                  onChange={(e) => setGlobalNewBatch((p) => ({ ...p, itemType: e.target.value as any }))}
+                  className="w-full h-8 px-2 text-xs font-bold bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500 cursor-pointer text-amber-900"
+                >
+                  <option value="Thành Phẩm">Thành Phẩm</option>
+                  <option value="Bán TP">Bán TP</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">TÊN VẬT TƯ</label>
+                <select
+                  value={globalNewBatch.materialName}
+                  onChange={(e) => setGlobalNewBatch((p) => ({ ...p, materialName: e.target.value }))}
+                  className="w-full h-8 px-1 text-xs bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                >
+                  <option value="">-- Chọn vật tư --</option>
+                  {getPoMaterials(globalNewBatch.poNumber).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">NGÀY XUẤT *</label>
+                <input
+                  type="text"
+                  value={globalNewBatch.deliveryDate}
+                  onChange={(e) => setGlobalNewBatch((p) => ({ ...p, deliveryDate: e.target.value }))}
+                  placeholder="DD/MM/YYYY"
+                  className="w-full h-8 px-2 text-xs font-mono bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">SỐ HĐ / PHIẾU *</label>
+                <input
+                  type="text"
+                  value={globalNewBatch.deliveryVoucher}
+                  onChange={(e) => setGlobalNewBatch((p) => ({ ...p, deliveryVoucher: e.target.value }))}
+                  placeholder="HĐ-..."
+                  className="w-full h-8 px-2 text-xs font-mono font-bold uppercase bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500 text-amber-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">ĐVT</label>
+                <input
+                  type="text"
+                  value={globalNewBatch.unit}
+                  onChange={(e) => setGlobalNewBatch((p) => ({ ...p, unit: e.target.value }))}
+                  placeholder="PRS"
+                  className="w-full h-8 px-2 text-xs text-center bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-600 mb-1">SỐ LƯỢNG XUẤT THEO DẢI SIZE:</label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {sizes.map((s) => (
+                  <div key={s} className="w-14">
+                    <span className="block text-[10px] font-mono font-bold text-center text-slate-500 mb-0.5">
+                      {s}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={globalNewBatch.sizeQuantities[s] ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
+                        setGlobalNewBatch((p) => ({
+                          ...p,
+                          sizeQuantities: { ...p.sizeQuantities, [s]: val },
+                        }));
+                      }}
+                      placeholder="-"
+                      className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white border border-amber-300 rounded focus:ring-1 focus:ring-amber-500 text-amber-950"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* BẢNG TỒN KHO & ĐA ĐỢT XUẤT THÀNH PHẨM (PHƯƠNG ÁN 1) */}
-        <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
+        <div ref={gridContainerRef} className="overflow-x-auto max-h-[640px] overflow-y-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
               <tr>
                 <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
                 <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
-                <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng (Style)</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px]">Code Vật tư</th>
+                <th className="p-2 border-r border-slate-300 min-w-[100px] bg-amber-50 text-amber-900 font-bold text-center">
+                  Loại
+                </th>
+                <th className="p-2 border-r border-slate-300 min-w-[130px] bg-amber-50 text-amber-900 font-bold">
+                  Tên Vật tư
+                </th>
                 <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
                 <th className="p-2 border-r border-slate-300 min-w-[175px]">Chỉ Số Thành Phẩm</th>
                 <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Ngày Xuất</th>
@@ -660,7 +971,7 @@ export const Tab8FinishedGoods: React.FC = () => {
             <tbody className="divide-y divide-slate-200 font-sans">
               {filteredStock.length === 0 ? (
                 <tr>
-                  <td colSpan={7 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
+                  <td colSpan={9 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
                     Chưa có dữ liệu thành phẩm nào được ghi nhận hoàn thành từ Tab 7 (Báo Cáo Sản Xuất Xong).
                   </td>
                 </tr>
@@ -708,13 +1019,29 @@ export const Tab8FinishedGoods: React.FC = () => {
                         >
                           {item.poNumber}
                         </td>
-                        {/* Cột Mã Hàng */}
+                        {/* Cột Code Vật tư */}
                         <td
                           rowSpan={totalPoRows}
                           className="p-2 border-r border-slate-300 font-mono font-bold text-slate-900 bg-white align-middle"
                         >
                           {item.itemCode}
                         </td>
+
+                        {/* Cột Loại (Dòng 1: Thành Phẩm) */}
+                        <td className="p-2 border-r border-slate-200 text-center">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            Thành Phẩm
+                          </span>
+                        </td>
+
+                        {/* Cột Tên Vật tư */}
+                        <td
+                          className="p-2 border-r border-slate-200 text-slate-700 text-xs truncate max-w-[130px]"
+                          title={item.materialName || ''}
+                        >
+                          {item.materialName || '-'}
+                        </td>
+
                         {/* Cột ĐVT */}
                         <td
                           rowSpan={totalPoRows}
@@ -756,7 +1083,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                           Sản xuất xong
                         </td>
 
-                        {/* Thao tác dòng 1: Giữ trống hoặc thêm nút nếu cần */}
+                        {/* Thao tác dòng 1: Giữ trống */}
                         <td className="p-2 text-center text-slate-400">
                           -
                         </td>
@@ -774,6 +1101,60 @@ export const Tab8FinishedGoods: React.FC = () => {
                               isEditingThisDel ? 'bg-[#fefce8]' : 'bg-[#fffbeb] hover:bg-[#fef3c7]'
                             } border-y border-amber-200/80`}
                           >
+                            {/* Cột Loại */}
+                            <td className="p-1 border-r border-slate-200 text-center">
+                              {isEditingThisDel ? (
+                                <select
+                                  value={activeDel.itemType || 'Thành Phẩm'}
+                                  onChange={(e) => handleUpdateEditingField(del.id, 'itemType', e.target.value)}
+                                  onKeyDown={(e) => {
+                                    handleCellArrowNavigation(e, gridContainerRef);
+                                    if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
+                                  }}
+                                  className="w-full h-8 px-1 text-xs border border-amber-300 rounded font-bold text-amber-900 bg-white cursor-pointer"
+                                >
+                                  <option value="Thành Phẩm">Thành Phẩm</option>
+                                  <option value="Bán TP">Bán TP</option>
+                                </select>
+                              ) : (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    del.itemType === 'Bán TP'
+                                      ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  }`}
+                                >
+                                  {del.itemType || 'Thành Phẩm'}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Cột Tên Vật tư */}
+                            <td className="p-1 border-r border-slate-200 text-slate-800">
+                              {isEditingThisDel ? (
+                                <select
+                                  value={activeDel.materialName || ''}
+                                  onChange={(e) => handleUpdateEditingField(del.id, 'materialName', e.target.value)}
+                                  onKeyDown={(e) => {
+                                    handleCellArrowNavigation(e, gridContainerRef);
+                                    if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
+                                  }}
+                                  className="w-full h-8 px-1 text-xs border border-amber-300 rounded text-slate-800 bg-white cursor-pointer"
+                                >
+                                  <option value="">-- Chọn VT --</option>
+                                  {getPoMaterials(item.poNumber).map((m) => (
+                                    <option key={m} value={m}>
+                                      {m}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <div className="p-1 text-slate-700 truncate max-w-[130px]" title={del.materialName || ''}>
+                                  {del.materialName || '-'}
+                                </div>
+                              )}
+                            </td>
+
                             {/* Chỉ số */}
                             <td className="p-2 border-r border-slate-200 font-bold text-amber-900 flex items-center gap-1.5 whitespace-nowrap">
                               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -788,6 +1169,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                                   value={activeDel.deliveryDate}
                                   onChange={(e) => handleUpdateEditingField(del.id, 'deliveryDate', e.target.value)}
                                   onKeyDown={(e) => {
+                                    handleCellArrowNavigation(e, gridContainerRef);
                                     if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
                                   }}
                                   placeholder="DD/MM/YYYY"
@@ -806,6 +1188,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                                   value={activeDel.deliveryVoucher}
                                   onChange={(e) => handleUpdateEditingField(del.id, 'deliveryVoucher', e.target.value)}
                                   onKeyDown={(e) => {
+                                    handleCellArrowNavigation(e, gridContainerRef);
                                     if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
                                   }}
                                   placeholder="HĐ-..."
@@ -830,6 +1213,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                                       value={val > 0 ? val : ''}
                                       onChange={(e) => handleUpdateEditingSize(del.id, s, e.target.value)}
                                       onKeyDown={(e) => {
+                                        handleCellArrowNavigation(e, gridContainerRef);
                                         if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
                                       }}
                                       onPaste={(e) => handleSizePaste(e, false, del.id, s)}
@@ -930,6 +1314,42 @@ export const Tab8FinishedGoods: React.FC = () => {
                       {/* DÒNG SOẠN ĐỢT XUẤT MỚI (DRAFT DELIVERY, NẾU CÓ) */}
                       {draftDelivery && (
                         <tr className="bg-[#f0fdf4] hover:bg-[#dcfce7]/70 transition-colors border-y-2 border-emerald-400">
+                          {/* Cột Loại */}
+                          <td className="p-1 border-r border-slate-200 text-center">
+                            <select
+                              value={draftDelivery.itemType || 'Thành Phẩm'}
+                              onChange={(e) => handleUpdateDraftField(item.key, 'itemType', e.target.value)}
+                              onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
+                                if (e.key === 'Enter') handleSaveDraftDelivery(item);
+                              }}
+                              className="w-full h-8 px-1 text-xs border border-emerald-300 rounded font-bold text-emerald-900 bg-white cursor-pointer"
+                            >
+                              <option value="Thành Phẩm">Thành Phẩm</option>
+                              <option value="Bán TP">Bán TP</option>
+                            </select>
+                          </td>
+
+                          {/* Cột Tên Vật tư */}
+                          <td className="p-1 border-r border-slate-200 text-slate-800">
+                            <select
+                              value={draftDelivery.materialName || ''}
+                              onChange={(e) => handleUpdateDraftField(item.key, 'materialName', e.target.value)}
+                              onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
+                                if (e.key === 'Enter') handleSaveDraftDelivery(item);
+                              }}
+                              className="w-full h-8 px-1 text-xs border border-emerald-300 rounded text-slate-800 bg-white cursor-pointer"
+                            >
+                              <option value="">-- Chọn VT --</option>
+                              {getPoMaterials(item.poNumber).map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
                           {/* Phân loại đợt mới */}
                           <td className="p-2 border-r border-slate-200 font-bold text-emerald-800 flex items-center gap-1.5 whitespace-nowrap">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -943,10 +1363,11 @@ export const Tab8FinishedGoods: React.FC = () => {
                               value={draftDelivery.deliveryDate}
                               onChange={(e) => handleUpdateDraftField(item.key, 'deliveryDate', e.target.value)}
                               onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
                                 if (e.key === 'Enter') handleSaveDraftDelivery(item);
                               }}
                               placeholder="DD/MM/YYYY"
-                              className="w-full h-8 px-1 text-center font-mono text-xs bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
+                              className="w-full h-8 px-1 text-center font-mono text-xs bg-white border border-emerald-300 focus:ring-1 focus:ring-emerald-500"
                             />
                           </td>
 
@@ -957,10 +1378,11 @@ export const Tab8FinishedGoods: React.FC = () => {
                               value={draftDelivery.deliveryVoucher}
                               onChange={(e) => handleUpdateDraftField(item.key, 'deliveryVoucher', e.target.value)}
                               onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
                                 if (e.key === 'Enter') handleSaveDraftDelivery(item);
                               }}
                               placeholder="Số HĐ / Phiếu..."
-                              className="w-full h-8 px-2 font-mono font-bold text-xs uppercase bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 text-emerald-950"
+                              className="w-full h-8 px-2 font-mono font-bold text-xs uppercase bg-white border border-emerald-300 focus:ring-1 focus:ring-emerald-500 text-emerald-950"
                             />
                           </td>
 
@@ -975,6 +1397,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                                   value={val > 0 ? val : ''}
                                   onChange={(e) => handleUpdateDraftSize(item.key, s, e.target.value)}
                                   onKeyDown={(e) => {
+                                    handleCellArrowNavigation(e, gridContainerRef);
                                     if (e.key === 'Enter') handleSaveDraftDelivery(item);
                                   }}
                                   onPaste={(e) => handleSizePaste(e, true, item.key, s)}
@@ -1027,6 +1450,8 @@ export const Tab8FinishedGoods: React.FC = () => {
                       {/* DÒNG TỔNG CỘNG CÁC ĐỢT ĐÃ XUẤT (HIỂN THỊ NẾU CÓ >= 2 ĐỢT) */}
                       {hasMultipleDeliveries && (
                         <tr className="bg-amber-100/50 font-bold border-y border-amber-300/80 text-amber-950">
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-400">-</td>
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-400">-</td>
                           <td className="p-2 border-r border-slate-200 text-amber-900 flex items-center gap-1.5 text-[11px] tracking-wide uppercase">
                             <span>🔹 Tổng cộng đã xuất</span>
                           </td>
@@ -1057,6 +1482,8 @@ export const Tab8FinishedGoods: React.FC = () => {
 
                       {/* DÒNG 3: TỒN KHO THÀNH PHẨM HIỆN TẠI (Tự động trừ lùi = Nhập kho - Tổng tất cả các đợt xuất) */}
                       <tr className="bg-[#f8fafc] font-bold border-b-2 border-slate-300">
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-400">-</td>
+                        <td className="p-2 border-r border-slate-200 text-center text-slate-400">-</td>
                         <td className="p-2 border-r border-slate-200 text-slate-900 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
                           <span
                             className={`w-2 h-2 rounded-full ${
@@ -1087,7 +1514,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                               key={s}
                               className={`p-2 border-r border-slate-200 text-center font-mono text-xs ${
                                 st > 0
-                                  ? 'text-emerald-900 bg-emerald-100/70 font-bold'
+                                    ? 'text-emerald-900 bg-emerald-100/70 font-bold'
                                   : st < 0
                                   ? 'text-rose-700 bg-rose-100 font-bold'
                                   : 'text-slate-400 font-normal'
@@ -1149,7 +1576,7 @@ export const Tab8FinishedGoods: React.FC = () => {
               {/* DÒNG TỔNG CỘNG TOÀN BẢNG TAB 8 */}
               {filteredStock.length > 0 && (
                 <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
-                  <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                  <td colSpan={9} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
                     TỔNG CỘNG TỒN KHO THÀNH PHẨM TOÀN BỘ:
                   </td>
                   {sizes.map((s) => {

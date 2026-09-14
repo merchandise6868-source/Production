@@ -137,7 +137,7 @@ export const PrintHtmlModal: React.FC<PrintHtmlModalProps> = ({
                   <th className="p-1.5 border border-black whitespace-nowrap min-w-[75px]">Ngày</th>
                   <th className="p-1.5 border border-black min-w-[90px]">Số Phiếu KH</th>
                   <th className="p-1.5 border border-black min-w-[80px]">Mã PO</th>
-                  <th className="p-1.5 border border-black min-w-[95px]">Mã Hàng (TT)</th>
+                  <th className="p-1.5 border border-black min-w-[95px]">Code Vật tư</th>
                   <th className="p-1.5 border border-black min-w-[120px]">Diễn Giải Vật Tư</th>
                   <th className="p-1.5 border border-black text-center w-12">ĐVT</th>
 

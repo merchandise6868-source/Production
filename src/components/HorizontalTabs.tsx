@@ -57,13 +57,6 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
       isWarning: negDiffCount > 0,
     },
     {
-      id: 4,
-      label: 'Tab 4: Nhận Vật Tư Giao Bù',
-      icon: PackageCheck,
-      badge: pendingCompCount > 0 ? `${pendingCompCount} cần bù` : (currentCustomerCompensationItems.length > 0 ? 'Đã nhận bù' : null),
-      highlight: pendingCompCount > 0,
-    },
-    {
       id: 5,
       label: 'Tab 5: Tồn Kho Vật Tư Realtime',
       icon: Warehouse,

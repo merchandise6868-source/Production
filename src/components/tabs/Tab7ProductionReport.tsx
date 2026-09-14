@@ -18,6 +18,8 @@ import {
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
+import { SearchablePoSelect } from '../common/SearchablePoSelect';
+import { handleCellArrowNavigation } from '../../utils/tableNavigation';
 
 export interface Tab7ReportItem {
   id: string;
@@ -26,6 +28,7 @@ export interface Tab7ReportItem {
   reportDate: string;
   poNumber: string;
   itemCode: string;
+  detailName?: string;
   lineId: string;
   unit: string;
   completedQuantities: Record<string, number | ''>;
@@ -49,15 +52,12 @@ const LINE_OPTIONS = [
   'Tổ Hoàn Thiện',
 ];
 
-interface Tab7ProductionReportProps {
-  onNavigateToTab4?: () => void;
-}
-
-export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
+export const Tab7ProductionReport: React.FC = () => {
   const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
+    currentCustomerPOs,
     currentCustomerPlanOrders,
     currentCustomerProductionReports,
     currentCustomerRealtimeStock,
@@ -73,6 +73,17 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
     }
     return ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
   }, [activeSizeRun]);
+
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+
+  // Lấy danh sách tên chi tiết / vật tư có trong PO đó
+  const getPoDetails = (poNumber: string) => {
+    const matching = currentCustomerPlanOrders.filter(
+      (p) => p.poNumber.toUpperCase() === poNumber.toUpperCase()
+    );
+    const details = matching.map((p) => p.description || p.itemCode).filter(Boolean);
+    return Array.from(new Set(details));
+  };
 
   const createBlankItem = (idx: number, isEditing: boolean = true): Tab7ReportItem => {
     const compInit: Record<string, number | ''> = {};
@@ -90,6 +101,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
       reportDate: defaultDate,
       poNumber: defaultPlan?.poNumber || '',
       itemCode: defaultPlan?.itemCode || '',
+      detailName: defaultPlan?.description || '',
       lineId: 'Chuyền 1',
       unit: defaultPlan?.unit || 'PRS',
       completedQuantities: compInit,
@@ -118,6 +130,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
           reportDate: r.reportDate,
           poNumber: r.poNumber,
           itemCode: r.itemCode,
+          detailName: r.detailName || '',
           lineId: r.lineId,
           unit: r.unit || 'PRS',
           completedQuantities: comp,
@@ -161,6 +174,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
           reportDate: r.reportDate,
           poNumber: r.poNumber,
           itemCode: r.itemCode,
+          detailName: r.detailName || '',
           lineId: r.lineId,
           unit: r.unit || 'PRS',
           completedQuantities: comp,
@@ -211,6 +225,10 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
           if (match) {
             updated.itemCode = match.itemCode;
             updated.unit = match.unit;
+            const details = getPoDetails(match.poNumber);
+            if (details.length > 0 && !updated.detailName) {
+              updated.detailName = details[0];
+            }
           }
         }
         return updated;
@@ -262,7 +280,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
     if (!item) return;
 
     if (!item.poNumber.trim() || !item.itemCode.trim()) {
-      alert('Vui lòng nhập đầy đủ Mã PO và Mã Hàng!', 'Thiếu thông tin', 'warning');
+      alert('Vui lòng nhập đầy đủ Mã PO và Code Vật tư!', 'Thiếu thông tin', 'warning');
       return;
     }
 
@@ -321,6 +339,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
       reportDate: item.reportDate.trim() || defaultDate,
       poNumber: item.poNumber.trim().toUpperCase(),
       itemCode: item.itemCode.trim().toUpperCase(),
+      detailName: item.detailName?.trim() || undefined,
       lineId: item.lineId,
       unit: item.unit || 'PRS',
       completedQuantities: completedQ,
@@ -470,16 +489,17 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
     });
   };
 
-  // Lọc theo tìm kiếm
+  // Lọc tìm kiếm
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return reportItems;
     const q = searchQuery.toLowerCase();
     return reportItems.filter(
-      (r) =>
-        r.poNumber.toLowerCase().includes(q) ||
-        r.itemCode.toLowerCase().includes(q) ||
-        r.lineId.toLowerCase().includes(q) ||
-        (r.note && r.note.toLowerCase().includes(q))
+      (i) =>
+        i.poNumber.toLowerCase().includes(q) ||
+        i.itemCode.toLowerCase().includes(q) ||
+        (i.detailName && i.detailName.toLowerCase().includes(q)) ||
+        i.lineId.toLowerCase().includes(q) ||
+        i.status.toLowerCase().includes(q)
     );
   }, [reportItems, searchQuery]);
 
@@ -487,10 +507,11 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
   const handleExportExcel = () => {
     const headers = [
       'STT',
-      'Ngày Báo Cáo',
+      'Ngày BC',
       'Mã PO',
-      'Mã Hàng (TT Code)',
-      'Chuyền Sản Xuất',
+      'Code Vật tư',
+      'Tên Chi Tiết',
+      'Chuyền SX',
       'ĐVT',
       'Phân Loại',
       ...sizes.map((s) => `Size ${s}`),
@@ -506,6 +527,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
         rep.reportDate,
         rep.poNumber,
         rep.itemCode,
+        rep.detailName || '',
         rep.lineId,
         rep.unit,
         '1. Đạt chuẩn (Nhập)',
@@ -517,6 +539,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
       const dTotal = sizes.reduce((sum, s) => sum + (typeof rep.damagedQuantities[s] === 'number' ? Number(rep.damagedQuantities[s]) : 0), 0);
       if (dTotal > 0 || rep.isEditing) {
         dataRows.push([
+          '',
           '',
           '',
           '',
@@ -600,7 +623,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
             <div className="relative w-40 sm:w-48">
               <input
                 type="text"
-                placeholder="Tìm PO, mã hàng, chuyền..."
+                placeholder="Tìm PO, Code Vật tư, chuyền..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-white"
@@ -642,14 +665,17 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
         </div>
 
         {/* Bảng Dữ Liệu Trực Tiếp (Giữ nguyên vị trí dòng, Enter khóa dòng, Sửa mở khóa tại ô) */}
-        <div className="overflow-x-auto max-h-[620px] overflow-y-auto">
+        <div ref={gridContainerRef} className="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
               <tr>
                 <th className="p-2 border-r border-slate-300 text-center w-9">#</th>
                 <th className="p-2 border-r border-slate-300 min-w-[90px]">Ngày BC *</th>
-                <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO *</th>
-                <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[125px]">Mã PO *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px]">Code Vật tư *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[130px] bg-amber-50 text-amber-900 font-bold">
+                  Tên Chi Tiết
+                </th>
                 <th className="p-2 border-r border-slate-300 min-w-[110px] bg-sky-50 text-sky-900 font-bold">
                   Chuyền SX *
                 </th>
@@ -720,6 +746,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                             value={item.reportDate}
                             onChange={(e) => handleUpdateItemField(item.id, 'reportDate', e.target.value)}
                             onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);
                             }}
                             placeholder="DD/MM/YYYY"
@@ -731,35 +758,27 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                       {/* Mã PO */}
                       <td
                         rowSpan={2}
-                        className="p-0 border-r border-slate-300 align-middle bg-white"
+                        className="p-1 border-r border-slate-300 align-middle bg-white"
                       >
                         {isLocked ? (
-                          <div className="p-2 font-mono font-bold text-sky-700 whitespace-nowrap">
+                          <div className="p-1 font-mono font-bold text-sky-700 whitespace-nowrap">
                             {item.poNumber}
                           </div>
                         ) : (
-                          <input
-                            type="text"
-                            list={`po-rep-list-${item.id}`}
+                          <SearchablePoSelect
                             value={item.poNumber}
-                            onChange={(e) => handleUpdateItemField(item.id, 'poNumber', e.target.value)}
+                            onChange={(val) => handleUpdateItemField(item.id, 'poNumber', val)}
                             onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);
                             }}
-                            placeholder="MÃ PO..."
-                            className="w-full h-8 px-2 text-xs font-mono font-bold text-sky-800 uppercase bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
+                            placeholder="Chọn PO..."
+                            className="w-full text-xs font-mono font-bold uppercase text-sky-800"
                           />
                         )}
-                        <datalist id={`po-rep-list-${item.id}`}>
-                          {currentCustomerPlanOrders.map((p) => (
-                            <option key={p.id} value={p.poNumber}>
-                              {p.poNumber} - {p.itemCode}
-                            </option>
-                          ))}
-                        </datalist>
                       </td>
 
-                      {/* Mã Hàng */}
+                      {/* Code Vật tư */}
                       <td
                         rowSpan={2}
                         className="p-0 border-r border-slate-300 align-middle bg-white"
@@ -774,11 +793,43 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                             value={item.itemCode}
                             onChange={(e) => handleUpdateItemField(item.id, 'itemCode', e.target.value)}
                             onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);
                             }}
-                            placeholder="Mã Hàng"
+                            placeholder="Code Vật tư"
                             className="w-full h-8 px-2 text-xs font-mono font-bold text-slate-900 uppercase bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
                           />
+                        )}
+                      </td>
+
+                      {/* Tên Chi Tiết */}
+                      <td
+                        rowSpan={2}
+                        className="p-0 border-r border-slate-300 align-middle bg-white min-w-[120px]"
+                      >
+                        {isLocked ? (
+                          <div className="p-2 text-slate-800 text-xs truncate max-w-[140px]" title={item.detailName || ''}>
+                            {item.detailName || '-'}
+                          </div>
+                        ) : (
+                          <div className="p-1">
+                            <select
+                              value={item.detailName || ''}
+                              onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
+                              onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
+                                if (e.key === 'Enter') handleSaveRow(item.id);
+                              }}
+                              className="w-full h-8 px-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white"
+                            >
+                              <option value="">-- Chọn chi tiết --</option>
+                              {getPoDetails(item.poNumber).map((d) => (
+                                <option key={d} value={d}>
+                                  {d}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         )}
                       </td>
 
@@ -795,6 +846,10 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                           <select
                             value={item.lineId}
                             onChange={(e) => handleUpdateItemField(item.id, 'lineId', e.target.value)}
+                            onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
+                              if (e.key === 'Enter') handleSaveRow(item.id);
+                            }}
                             className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                           >
                             {LINE_OPTIONS.map((line) => (
@@ -819,6 +874,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                             value={item.unit}
                             onChange={(e) => handleUpdateItemField(item.id, 'unit', e.target.value)}
                             onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);
                             }}
                             className="w-full h-8 px-1 text-xs text-center bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
@@ -840,7 +896,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                             {isLocked ? (
                               <div
                                 className={`p-2 font-mono font-bold ${
-                                  typeof val === 'number' && val > 0 ? 'text-emerald-900 bg-emerald-50/40' : 'text-slate-300'
+                                   typeof val === 'number' && val > 0 ? 'text-emerald-900 bg-emerald-50/40' : 'text-slate-300'
                                 }`}
                               >
                                 {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
@@ -852,6 +908,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                                 value={val ?? ''}
                                 onChange={(e) => handleUpdateItemSizeQty(item.id, 'completed', s, e.target.value)}
                                 onKeyDown={(e) => {
+                                  handleCellArrowNavigation(e, gridContainerRef);
                                   if (e.key === 'Enter') handleSaveRow(item.id);
                                 }}
                                 onPaste={(e) => handleCellPaste(e, idx, 'completed', s)}
@@ -904,6 +961,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                             value={item.note}
                             onChange={(e) => handleUpdateItemField(item.id, 'note', e.target.value)}
                             onKeyDown={(e) => {
+                              handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);
                             }}
                             placeholder="Ghi chú nguyên nhân hỏng (Enter lưu)..."
@@ -1028,6 +1086,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
                                 value={val ?? ''}
                                 onChange={(e) => handleUpdateItemSizeQty(item.id, 'damaged', s, e.target.value)}
                                 onKeyDown={(e) => {
+                                  handleCellArrowNavigation(e, gridContainerRef);
                                   if (e.key === 'Enter') handleSaveRow(item.id);
                                 }}
                                 onPaste={(e) => handleCellPaste(e, idx, 'damaged', s)}
@@ -1068,7 +1127,7 @@ export const Tab7ProductionReport: React.FC<Tab7ProductionReportProps> = () => {
 
               {/* DÒNG TỔNG CỘNG TOÀN BỘ BẢNG */}
               <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
-                <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                <td colSpan={8} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
                   TỔNG CỘNG THÀNH PHẨM ĐÃ NGHIỆM THU:
                 </td>
                 {sizes.map((s) => {

@@ -18,6 +18,8 @@ import { ExcelPasteModal } from '../common/ExcelPasteModal';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
+import { SearchablePoSelect } from '../common/SearchablePoSelect';
+import { handleCellArrowNavigation } from '../../utils/tableNavigation';
 
 export interface Tab1PlanItem {
   id: string;
@@ -30,6 +32,7 @@ export interface Tab1PlanItem {
   description: string;
   unit: string;
   sizeQuantities: Record<string, number | ''>;
+  status?: 'Hàng đơn' | 'Hàng bù';
   note: string;
 }
 
@@ -38,6 +41,7 @@ export const Tab1PlanOrder: React.FC = () => {
   const {
     currentCustomer,
     activeSizeRun,
+    currentCustomerPOs,
     currentCustomerPlanOrders,
     addPlanOrders,
     updatePlanOrder,
@@ -68,9 +72,12 @@ export const Tab1PlanOrder: React.FC = () => {
       description: '',
       unit: 'PRS',
       sizeQuantities: initialSizes,
+      status: 'Hàng đơn',
       note: '',
     };
   };
+
+  const gridContainerRef = useRef<HTMLDivElement>(null);
 
   // State danh sách các dòng đơn kế hoạch trên bảng
   const [planItems, setPlanItems] = useState<Tab1PlanItem[]>(() => {
@@ -91,6 +98,7 @@ export const Tab1PlanOrder: React.FC = () => {
           description: p.description || '',
           unit: p.unit || 'PRS',
           sizeQuantities: sq,
+          status: p.status || 'Hàng đơn',
           note: p.note || '',
         };
       });
@@ -129,6 +137,7 @@ export const Tab1PlanOrder: React.FC = () => {
           description: p.description || '',
           unit: p.unit || 'PRS',
           sizeQuantities: sq,
+          status: p.status || 'Hàng đơn',
           note: p.note || '',
         };
       });
@@ -142,8 +151,6 @@ export const Tab1PlanOrder: React.FC = () => {
   const [selectedForPrint, setSelectedForPrint] = useState<PlanOrderRow | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showPasteModal, setShowPasteModal] = useState(false);
-
-  const gridContainerRef = useRef<HTMLDivElement>(null);
 
   // Thêm dòng mới: Tự tăng số thứ tự
   const handleAddRows = (count: number = 1) => {
@@ -206,7 +213,7 @@ export const Tab1PlanOrder: React.FC = () => {
     if (!item) return;
 
     if (!item.poNumber.trim() || !item.itemCode.trim()) {
-      alert('Vui lòng nhập đầy đủ Mã PO và Mã Hàng!', 'Thiếu thông tin', 'warning');
+      alert('Vui lòng nhập đầy đủ Mã PO và Code Vật tư!', 'Thiếu thông tin', 'warning');
       return;
     }
 
@@ -232,6 +239,7 @@ export const Tab1PlanOrder: React.FC = () => {
       unit: item.unit || 'PRS',
       sizeQuantities: sq,
       totalQty: total,
+      status: item.status || 'Hàng đơn',
       note: item.note.trim() || undefined,
     };
 
@@ -420,12 +428,13 @@ export const Tab1PlanOrder: React.FC = () => {
       'STT',
       'Ngày Nhận',
       'Mã PO',
-      'Mã Hàng (TT Code)',
+      'Code Vật tư',
       'Số Phiếu Giao',
       'Quy Cách / Diễn Giải',
       'ĐVT',
       ...sizes.map((s) => `Size ${s}`),
       'Tổng SL Kế Hoạch',
+      'Trạng Thái',
       'Ghi Chú',
     ];
 
@@ -439,6 +448,7 @@ export const Tab1PlanOrder: React.FC = () => {
       p.unit,
       ...sizes.map((s) => (typeof p.sizeQuantities[s] === 'number' ? p.sizeQuantities[s] : 0)),
       getItemTotal(p),
+      p.status || 'Hàng đơn',
       p.note || '',
     ]);
 
@@ -510,7 +520,7 @@ export const Tab1PlanOrder: React.FC = () => {
             <div className="relative w-40 sm:w-48">
               <input
                 type="text"
-                placeholder="Tìm PO, mã hàng, phiếu..."
+                placeholder="Tìm PO, Code Vật tư, phiếu..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded p-1.5 pl-7 focus:ring-1 focus:ring-sky-500 focus:outline-none bg-white"
@@ -569,14 +579,14 @@ export const Tab1PlanOrder: React.FC = () => {
         </div>
 
         {/* Bảng Dữ Liệu Excel (Khóa dòng tại chỗ, mở khóa sửa ngay trên ô) */}
-        <div className="overflow-x-auto max-h-[620px] overflow-y-auto">
+        <div ref={gridContainerRef} className="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
               <tr>
                 <th className="p-2 border-r border-slate-300 text-center w-9">#</th>
                 <th className="p-2 border-r border-slate-300 min-w-[95px]">Ngày Nhận *</th>
-                <th className="p-2 border-r border-slate-300 min-w-[110px]">Mã PO *</th>
-                <th className="p-2 border-r border-slate-300 min-w-[125px]">Mã Hàng (TT) *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[130px]">Mã PO *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư *</th>
                 <th className="p-2 border-r border-slate-300 min-w-[110px]">Số Phiếu Giao</th>
                 <th className="p-2 border-r border-slate-300 min-w-[140px]">Quy Cách / Diễn Giải</th>
                 <th className="p-2 border-r border-slate-300 text-center w-14">ĐVT</th>
@@ -593,6 +603,7 @@ export const Tab1PlanOrder: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[85px] text-right bg-sky-100 text-sky-950 font-bold">
                   TỔNG SL
                 </th>
+                <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Trạng Thái</th>
                 <th className="p-2 border-r border-slate-300 min-w-[130px]">Ghi Chú</th>
                 <th className="p-2 text-center w-24">Thao Tác</th>
               </tr>
@@ -629,6 +640,7 @@ export const Tab1PlanOrder: React.FC = () => {
                           value={item.receiptDate}
                           onChange={(e) => handleUpdateItemField(item.id, 'receiptDate', e.target.value)}
                           onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
                           placeholder="DD/MM/YYYY"
@@ -637,29 +649,38 @@ export const Tab1PlanOrder: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Mã PO */}
+                    {/* Mã PO (Autocomplete Dropdown gợi ý khi gõ) */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
                         <div className="p-2 font-mono font-bold text-sky-700 whitespace-nowrap">
                           {item.poNumber}
                         </div>
                       ) : (
-                        <input
-                          type="text"
-                          data-row-idx={idx}
-                          data-col-key="poNumber"
+                        <SearchablePoSelect
                           value={item.poNumber}
-                          onChange={(e) => handleUpdateItemField(item.id, 'poNumber', e.target.value.toUpperCase())}
+                          pos={currentCustomerPOs}
+                          rowIdx={idx}
+                          colKey="poNumber"
+                          onChange={(val) => handleUpdateItemField(item.id, 'poNumber', val)}
+                          onSelectPo={(po) => {
+                            if (!item.itemCode && po.style) {
+                              handleUpdateItemField(item.id, 'itemCode', po.style);
+                            }
+                            if (!item.unit && po.unit) {
+                              handleUpdateItemField(item.id, 'unit', po.unit);
+                            }
+                          }}
                           onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
-                          placeholder="MÃ PO..."
+                          placeholder="Gõ mã PO..."
                           className="w-full h-8 px-2 text-xs font-mono font-bold text-sky-800 uppercase bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white"
                         />
                       )}
                     </td>
 
-                    {/* Mã Hàng */}
+                    {/* Code Vật tư (trước là Mã hàng TT) */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
                         <div className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap">
@@ -673,9 +694,10 @@ export const Tab1PlanOrder: React.FC = () => {
                           value={item.itemCode}
                           onChange={(e) => handleUpdateItemField(item.id, 'itemCode', e.target.value.toUpperCase())}
                           onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
-                          placeholder="Mã Hàng"
+                          placeholder="Code Vật tư"
                           className="w-full h-8 px-2 text-xs font-mono font-bold text-slate-900 uppercase bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white"
                         />
                       )}
@@ -693,6 +715,7 @@ export const Tab1PlanOrder: React.FC = () => {
                           value={item.voucherCode}
                           onChange={(e) => handleUpdateItemField(item.id, 'voucherCode', e.target.value)}
                           onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
                           placeholder="Số phiếu giao..."
@@ -713,6 +736,7 @@ export const Tab1PlanOrder: React.FC = () => {
                           value={item.description}
                           onChange={(e) => handleUpdateItemField(item.id, 'description', e.target.value)}
                           onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
                           placeholder="Quy cách vật tư..."
@@ -731,6 +755,10 @@ export const Tab1PlanOrder: React.FC = () => {
                           data-col-key="unit"
                           value={item.unit}
                           onChange={(e) => handleUpdateItemField(item.id, 'unit', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
                           className="w-full h-8 px-1 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white cursor-pointer text-center"
                         >
                           <option value="PRS">PRS</option>
@@ -768,6 +796,7 @@ export const Tab1PlanOrder: React.FC = () => {
                               value={val ?? ''}
                               onChange={(e) => handleUpdateItemSizeQty(item.id, s, e.target.value)}
                               onKeyDown={(e) => {
+                                handleCellArrowNavigation(e, gridContainerRef);
                                 if (e.key === 'Enter') handleSaveRow(item.id);
                               }}
                               placeholder="-"
@@ -781,6 +810,38 @@ export const Tab1PlanOrder: React.FC = () => {
                     {/* Tổng SL */}
                     <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-sky-50/60 text-sky-900">
                       {rowTotal > 0 ? rowTotal.toLocaleString('vi-VN') : '-'}
+                    </td>
+
+                    {/* Trạng Thái (Kế cuối: Dropdown Hàng đơn hoặc Hàng bù) */}
+                    <td className="p-0 border-r border-slate-200 text-center">
+                      {isLocked ? (
+                        <div className="p-1.5 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.status === 'Hàng bù'
+                                ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                                : 'bg-sky-100 text-sky-800 border border-sky-300'
+                            }`}
+                          >
+                            {item.status || 'Hàng đơn'}
+                          </span>
+                        </div>
+                      ) : (
+                        <select
+                          data-row-idx={idx}
+                          data-col-key="status"
+                          value={item.status || 'Hàng đơn'}
+                          onChange={(e) => handleUpdateItemField(item.id, 'status', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-1 text-xs bg-white border border-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-500 font-semibold cursor-pointer text-center"
+                        >
+                          <option value="Hàng đơn">Hàng đơn</option>
+                          <option value="Hàng bù">Hàng bù</option>
+                        </select>
+                      )}
                     </td>
 
                     {/* Ghi Chú */}
@@ -797,6 +858,7 @@ export const Tab1PlanOrder: React.FC = () => {
                           value={item.note}
                           onChange={(e) => handleUpdateItemField(item.id, 'note', e.target.value)}
                           onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
                           placeholder="Ghi chú đơn..."
@@ -947,7 +1009,7 @@ export const Tab1PlanOrder: React.FC = () => {
         onClose={() => setShowPasteModal(false)}
         onApply={(matrix) => handleApplyMatrixPaste(matrix, 0, 'receiptDate')}
         title="Dán dữ liệu số trên phiếu từ Excel"
-        instructions="Copy các ô từ Excel (Ngày, Mã PO, Mã Hàng, Số Phiếu, Quy Cách, ĐVT, các Size) và dán vào đây:"
+        instructions="Copy các ô từ Excel (Ngày, Mã PO, Code Vật tư, Số Phiếu, Quy Cách, ĐVT, các Size) và dán vào đây:"
       />
     </div>
   );

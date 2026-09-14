@@ -6,7 +6,6 @@ import { CustomerTab } from './components/tabs/CustomerTab';
 import { Tab1PlanOrder } from './components/tabs/Tab1PlanOrder';
 import { Tab2ActualReceive } from './components/tabs/Tab2ActualReceive';
 import { Tab3Discrepancy } from './components/tabs/Tab3Discrepancy';
-import { Tab4CompensationPrint } from './components/tabs/Tab4CompensationPrint';
 import { Tab5ProductionIssue } from './components/tabs/Tab5ProductionIssue';
 import { Tab6RealtimeStock } from './components/tabs/Tab6RealtimeStock';
 import { Tab7ProductionReport } from './components/tabs/Tab7ProductionReport';
@@ -88,11 +87,10 @@ export const AppContent: React.FC = () => {
           {activeTab === 0 && <CustomerTab />}
           {activeTab === 1 && <Tab1PlanOrder />}
           {activeTab === 2 && <Tab2ActualReceive />}
-          {activeTab === 3 && <Tab3Discrepancy onNavigateToTab4={() => setActiveTab(4)} />}
-          {activeTab === 4 && <Tab4CompensationPrint />}
+          {activeTab === 3 && <Tab3Discrepancy />}
           {activeTab === 5 && <Tab6RealtimeStock />}
           {activeTab === 6 && <Tab5ProductionIssue />}
-          {activeTab === 7 && <Tab7ProductionReport onNavigateToTab4={() => setActiveTab(4)} />}
+          {activeTab === 7 && <Tab7ProductionReport />}
           {activeTab === 8 && <Tab8FinishedGoods />}
           {activeTab === 9 && <Tab8MasterSummary />}
         </main>

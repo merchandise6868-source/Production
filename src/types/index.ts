@@ -139,12 +139,13 @@ export interface PlanOrderRow {
   customerId: string;
   receiptDate: string;     // NGÀY NHẬP
   poNumber: string;        // MÃ PO
-  itemCode: string;        // MÃ HÀNG (TT CODE)
+  itemCode: string;        // CODE VẬT TƯ (TRƯỚC LÀ MÃ HÀNG TT)
   voucherCode: string;     // SỐ PHIẾU KH
   description: string;     // DIỄN GIẢI
   unit: string;            // ĐVT (PRS, đôi, bộ...)
   sizeQuantities: Record<string, number>; // Số lượng kế hoạch từng Size 4 -> 12
   totalQty: number;        // TỔNG CỘNG tự động tính
+  status?: 'Hàng đơn' | 'Hàng bù'; // Trạng thái đơn hàng
   note?: string;
   createdAt: string;
 }
@@ -154,8 +155,15 @@ export interface ActualReceiveRow {
   id: string;
   planOrderId: string;     // Liên kết tương ứng dòng định danh ở Tab 1
   customerId: string;
+  receiptDate?: string;    // Ngày nhận thực tế
+  poNumber?: string;       // Mã PO
+  itemCode?: string;       // Code vật tư
+  voucherCode?: string;    // Số phiếu
+  description?: string;    // Diễn giải
+  unit?: string;           // ĐVT
   sizeQuantities: Record<string, number>; // Số lượng thực nhận thực tế từng Size
   totalQty: number;
+  status?: 'Hàng đơn' | 'Hàng bù'; // Trạng thái: Hàng đơn hay Hàng bù
   note?: string;
   updatedAt: string;
 }
@@ -187,6 +195,7 @@ export interface ProductionIssueRow {
   issueDate: string;
   poNumber: string;
   itemCode: string;
+  detailName?: string;               // Dropdown tên chi tiết trong PO
   lineId: string;                    // Dropdown: Chuyền 1, Chuyền 2, Chuyền 3...
   unit: string;
   sizeQuantities: Record<string, number>;
@@ -201,6 +210,7 @@ export interface ProductionReportRow {
   reportDate: string;
   poNumber: string;
   itemCode: string;
+  detailName?: string;               // Dropdown tên chi tiết trong PO
   lineId: string;
   unit: string;
   completedQuantities: Record<string, number>; // Số lượng hoàn thành
@@ -274,6 +284,8 @@ export interface FinishedGoodsDeliveryRow {
   deliveryDate: string;              // Ngày xuất giao (DD/MM/YYYY)
   poNumber: string;                  // Mã PO
   itemCode: string;                  // Mã hàng / Model
+  itemType?: 'Bán TP' | 'Thành Phẩm'; // Loại: Bán TP hoặc Thành Phẩm
+  materialName?: string;             // Tên vật tư trong PO
   deliveryVoucher: string;           // Số phiếu xuất giao (Delivery Note No)
   receiver: string;                  // Khách hàng / Người nhận
   unit: string;                      // ĐVT (đôi, PRS, chiếc...)
@@ -289,6 +301,8 @@ export interface FinishedGoodsStockItem {
   customerId: string;
   poNumber: string;
   itemCode: string;
+  itemType?: 'Bán TP' | 'Thành Phẩm'; // Loại: Bán TP hoặc Thành Phẩm
+  materialName?: string;             // Tên vật tư trong PO
   unit: string;
   inboundSizes: Record<string, number>;   // Tự động đọc từ Tab 7 (completedQuantities của các chuyền)
   totalInbound: number;
