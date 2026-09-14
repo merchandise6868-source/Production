@@ -70,6 +70,7 @@ export const INITIAL_POS: PurchaseOrder[] = [
     orderDate: '01/09/2026',
     targetQty: 10,
     unit: 'đôi',
+    sizeQuantities: { '5': 2, '6': 3, '7': 3, '8': 2 },
     note: 'Hợp đồng đơn mẫu 10 đôi da thật',
   },
   {
@@ -80,6 +81,7 @@ export const INITIAL_POS: PurchaseOrder[] = [
     orderDate: '03/09/2026',
     targetQty: 25,
     unit: 'đôi',
+    sizeQuantities: { '6': 5, '7': 10, '8': 10 },
     note: 'Đơn hàng đế TPR size M và L',
   },
   {
@@ -90,6 +92,7 @@ export const INITIAL_POS: PurchaseOrder[] = [
     orderDate: '02/09/2026',
     targetQty: 50,
     unit: 'đôi',
+    sizeQuantities: { '5': 10, '6': 15, '7': 15, '8': 10 },
     note: 'Đơn hàng xuất xưởng tuần 1 tháng 9',
   },
 ];

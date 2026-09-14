@@ -39,19 +39,19 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     { id: 0, label: 'Khách Hàng & Dải Size', icon: Users, badge: null },
     {
       id: 1,
-      label: 'Tab 1: Số Trên Phiếu',
+      label: 'Tab 1: Số Vật Tư Trên Phiếu',
       icon: FileSpreadsheet,
       badge: currentCustomerPlanOrders.length > 0 ? `${currentCustomerPlanOrders.length} đơn` : null,
     },
     {
       id: 2,
-      label: 'Tab 2: Số Thực Nhận',
+      label: 'Tab 2: Số Vật Tư Thực Nhận',
       icon: PackageCheck,
       badge: currentCustomerActualReceives.length > 0 ? `${currentCustomerActualReceives.length} đã nhận` : null,
     },
     {
       id: 3,
-      label: 'Tab 3: Số Chênh Lệch',
+      label: 'Tab 3: Số Vật Tư Chênh Lệch',
       icon: Scale,
       badge: negDiffCount > 0 ? `${negDiffCount} lệch âm` : 'Khớp',
       isWarning: negDiffCount > 0,
@@ -65,13 +65,13 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     },
     {
       id: 5,
-      label: 'Tab 5: Tồn Kho Thời Gian Thực',
+      label: 'Tab 5: Tồn Kho Vật Tư Realtime',
       icon: Warehouse,
       badge: currentCustomerRealtimeStock.length > 0 ? `${currentCustomerRealtimeStock.length} mã` : null,
     },
     {
       id: 6,
-      label: 'Tab 6: Xuất Cho Sản Xuất',
+      label: 'Tab 6: Xuất Vật Tư Cho Sản Xuất',
       icon: Factory,
       badge: currentCustomerProductionIssues.length > 0 ? `${currentCustomerProductionIssues.length} đợt` : null,
     },

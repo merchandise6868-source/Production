@@ -168,7 +168,7 @@ export const Tab6RealtimeStock: React.FC = () => {
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
               <Warehouse className="w-4 h-4 text-sky-600" />
-              <span>TAB 5: TỒN KHO THỜI GIAN THỰC &amp; PHÂN LOẠI XUẤT</span>
+              <span>TAB 5: TỒN KHO VẬT TƯ REALTIME &amp; PHÂN LOẠI XUẤT</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
               | Tồn = Thực nhận (Tab 2) - Xuất SX (Tab 6) - Xuất bù (Tab 7)

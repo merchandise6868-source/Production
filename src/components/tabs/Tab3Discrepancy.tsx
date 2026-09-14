@@ -178,7 +178,7 @@ export const Tab3Discrepancy: React.FC<Tab3DiscrepancyProps> = ({ onNavigateToTa
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
               <Scale className="w-4 h-4 text-sky-600" />
-              <span>TAB 3: SỐ CHÊNH LỆCH (TỰ ĐỘNG TÍNH & CẢNH BÁO ÂM)</span>
+              <span>TAB 3: SỐ VẬT TƯ CHÊNH LỆCH (TỰ ĐỘNG TÍNH & CẢNH BÁO ÂM)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
               | Công thức: Thực Nhận (Tab 2) - Trên Phiếu (Tab 1)

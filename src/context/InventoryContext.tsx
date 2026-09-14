@@ -50,6 +50,7 @@ interface InventoryContextType {
   addPurchaseOrder: (po: PurchaseOrder) => void;
   updatePurchaseOrder: (po: PurchaseOrder) => void;
   deletePurchaseOrder: (id: string) => void;
+  savePurchaseOrders: (pos: PurchaseOrder[]) => void;
 
   receipts: MaterialReceipt[];
   addReceipt: (receipt: MaterialReceipt) => void;
@@ -411,6 +412,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const deletePurchaseOrder = (id: string) => {
     setPurchaseOrders((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const savePurchaseOrders = (pos: PurchaseOrder[]) => {
+    setPurchaseOrders((prev) => {
+      const map = new Map(prev.map((p) => [p.id, p]));
+      pos.forEach((p) => map.set(p.id, p));
+      return Array.from(map.values());
+    });
   };
 
   // Receipts CRUD
@@ -1391,6 +1400,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addPurchaseOrder,
         updatePurchaseOrder,
         deletePurchaseOrder,
+        savePurchaseOrders,
         receipts,
         addReceipt,
         updateReceipt,

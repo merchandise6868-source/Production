@@ -548,7 +548,7 @@ export const Tab1PlanOrder: React.FC = () => {
           <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
             <div className="flex items-center gap-2">
               <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider">
-                TAB 1: KHỞI TẠO ĐƠN HÀNG (ĐỊNH DANH 1 LẦN DUY NHẤT)
+                TAB 1: SỐ VẬT TƯ TRÊN PHIẾU (ĐỊNH DANH 1 LẦN DUY NHẤT)
               </h3>
               <span className="text-[11px] text-slate-500 hidden md:inline">
                 | Định danh cho toàn bộ Tab 2 → 7

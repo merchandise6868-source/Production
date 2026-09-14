@@ -21,6 +21,7 @@ export interface PurchaseOrder {
   orderDate: string; // DD/MM/YYYY
   targetQty: number;
   unit: string;
+  sizeQuantities?: Record<string, number>; // Số lượng chi tiết theo từng size
   note?: string;
 }
 

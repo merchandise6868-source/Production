@@ -22,6 +22,7 @@ export const Tab8MasterSummary: React.FC = () => {
   const {
     currentCustomer,
     activeSizeRun,
+    currentCustomerPOs,
     currentCustomerPlanOrders,
     currentCustomerActualReceives,
     currentCustomerRealtimeStock,
@@ -37,39 +38,138 @@ export const Tab8MasterSummary: React.FC = () => {
   }, [activeSizeRun]);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filterMode, setFilterMode] = useState<'ALL' | 'NEGATIVE_ONLY' | 'HAS_STOCK_ONLY'>('ALL');
+  const [filterMode, setFilterMode] = useState<'ALL' | 'NEEDED_ONLY' | 'HAS_STOCK_ONLY'>('ALL');
   const [viewMode, setViewMode] = useState<'MATRIX' | 'FLAT'>('MATRIX');
   const [showPrintModal, setShowPrintModal] = useState(false);
+
+  // Helper coloring for Row 2: Số đã xuất
+  // "khi nào còn thiếu thì màu đỏ, đủ thì số màu xanh,xuất dư thì số màu xanh dương"
+  const getIssuedCellClass = (issued: number, order: number) => {
+    if (order === 0 && issued === 0) {
+      return 'text-slate-400 font-normal';
+    }
+    if (issued < order) {
+      // Còn thiếu: MÀU ĐỎ
+      return 'text-rose-600 font-bold bg-rose-50/70 border-rose-200';
+    }
+    if (issued === order) {
+      // Đủ: SỐ MÀU XANH (xanh lá)
+      return 'text-emerald-600 font-bold bg-emerald-50/70 border-emerald-200';
+    }
+    // Xuất dư: SỐ MÀU XANH DƯƠNG
+    return 'text-blue-600 font-bold bg-blue-50/70 border-blue-200';
+  };
+
+  const getIssuedTotalClass = (issued: number, order: number) => {
+    if (order === 0 && issued === 0) {
+      return 'text-slate-400 font-bold bg-slate-100/50';
+    }
+    if (issued < order) {
+      return 'text-rose-600 font-bold bg-rose-100/60';
+    }
+    if (issued === order) {
+      return 'text-emerald-600 font-bold bg-emerald-100/60';
+    }
+    return 'text-blue-600 font-bold bg-blue-100/60';
+  };
+
+  const getIssuedBadge = (issued: number, order: number) => {
+    if (order === 0 && issued === 0) {
+      return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500">Chưa đặt</span>;
+    }
+    if (issued < order) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
+          Thiếu {order - issued}
+        </span>
+      );
+    }
+    if (issued === order) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">
+          Đã đủ
+        </span>
+      );
+    }
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
+        Dư +{issued - order}
+      </span>
+    );
+  };
 
   // Combine data per PO + itemCode
   const summaryRows = useMemo(() => {
     return currentCustomerPlanOrders.map((plan, idx) => {
       const key = `${plan.poNumber.trim().toUpperCase()}__${plan.itemCode.trim().toUpperCase()}`;
-      
-      // Actual Receive (Tab 2)
-      const actual = currentCustomerActualReceives.find((a) => a.planOrderId === plan.id);
-      const actualSizes = actual?.sizeQuantities || {};
-      const actualTotal = actual?.totalQty || 0;
 
-      // Discrepancy (Tab 3)
-      const diffSizes: Record<string, number> = {};
-      let hasNegative = false;
-      let diffTotal = 0;
+      // 1. Số trên đơn hàng gốc (đọc từ bảng quản lý đơn hàng trong Khách hàng và dải size)
+      const originalPO = currentCustomerPOs.find(
+        (p) => p.poNumber.trim().toUpperCase() === plan.poNumber.trim().toUpperCase()
+      );
+
+      const orderSizes: Record<string, number> = {};
+      let orderTotal = 0;
+
       sizes.forEach((s) => {
-        const pVal = typeof plan.sizeQuantities[s] === 'number' ? Number(plan.sizeQuantities[s]) : 0;
-        const aVal = typeof actualSizes[s] === 'number' ? Number(actualSizes[s]) : 0;
-        const diff = aVal - pVal;
-        diffSizes[s] = diff;
-        diffTotal += diff;
-        if (diff < 0) hasNegative = true;
+        let val = 0;
+        if (originalPO?.sizeQuantities && typeof originalPO.sizeQuantities[s] === 'number') {
+          val = Number(originalPO.sizeQuantities[s]);
+        } else if (typeof plan.sizeQuantities[s] === 'number') {
+          val = Number(plan.sizeQuantities[s]);
+        }
+        orderSizes[s] = val;
+        orderTotal += val;
       });
+
+      if (orderTotal === 0) {
+        if (originalPO && originalPO.targetQty > 0) {
+          orderTotal = originalPO.targetQty;
+        } else if (plan.totalQty > 0) {
+          orderTotal = plan.totalQty;
+        }
+      }
 
       // Stock item (Tab 5)
       const stockItem = currentCustomerRealtimeStock.find((st) => st.key === key);
-      const stockSizes = stockItem?.currentStockSizes || {};
-      const stockTotal = stockItem?.totalCurrentStock || 0;
-      const prodIssuedTotal = stockItem?.totalProductionIssued || 0;
-      const compTotal = stockItem?.totalDamagedComp || 0;
+
+      // 2. Số đã xuất (Xuất vật tư cho sản xuất)
+      const issuedSizes: Record<string, number> = {};
+      let issuedTotal = 0;
+      sizes.forEach((s) => {
+        const val = stockItem?.productionIssuedSizes?.[s] || 0;
+        issuedSizes[s] = val;
+        issuedTotal += val;
+      });
+      if (issuedTotal === 0 && stockItem && stockItem.totalProductionIssued > 0) {
+        issuedTotal = stockItem.totalProductionIssued;
+      }
+
+      // 3. Số còn cần xuất = Số trên đơn hàng gốc - Số đã xuất
+      const neededSizes: Record<string, number> = {};
+      let neededTotal = 0;
+      sizes.forEach((s) => {
+        const ord = orderSizes[s] || 0;
+        const iss = issuedSizes[s] || 0;
+        const need = Math.max(0, ord - iss);
+        neededSizes[s] = need;
+        neededTotal += need;
+      });
+      if (orderTotal > 0 && neededTotal === 0 && issuedTotal < orderTotal) {
+        neededTotal = Math.max(0, orderTotal - issuedTotal);
+      }
+
+      // 4. Số còn tồn chưa xuất (Tồn kho khả dụng hiện có)
+      const stockSizes: Record<string, number> = {};
+      let stockTotal = 0;
+      sizes.forEach((s) => {
+        const val = stockItem?.currentStockSizes?.[s] || 0;
+        stockSizes[s] = val;
+        stockTotal += val;
+      });
+      if (stockTotal === 0 && stockItem && stockItem.totalCurrentStock > 0) {
+        stockTotal = stockItem.totalCurrentStock;
+      }
 
       return {
         id: plan.id,
@@ -80,32 +180,24 @@ export const Tab8MasterSummary: React.FC = () => {
         voucherCode: plan.voucherCode,
         description: plan.description,
         unit: plan.unit,
-        
-        // 1. Trên phiếu
-        planSizes: plan.sizeQuantities,
-        planTotal: plan.totalQty,
 
-        // 2. Thực tế
-        actualSizes,
-        actualTotal,
+        // 4 chỉ số nghiệp vụ chính
+        orderSizes,
+        orderTotal,
 
-        // 3. Chênh lệch
-        diffSizes,
-        diffTotal,
-        hasNegative,
+        issuedSizes,
+        issuedTotal,
 
-        // 4. Xuất sản xuất & bù
-        prodIssuedTotal,
-        compTotal,
+        neededSizes,
+        neededTotal,
 
-        // 5. Tồn kho còn lại
         stockSizes,
         stockTotal,
       };
     });
   }, [
     currentCustomerPlanOrders,
-    currentCustomerActualReceives,
+    currentCustomerPOs,
     currentCustomerRealtimeStock,
     sizes,
   ]);
@@ -122,7 +214,7 @@ export const Tab8MasterSummary: React.FC = () => {
 
       if (!matchSearch) return false;
 
-      if (filterMode === 'NEGATIVE_ONLY') return r.hasNegative;
+      if (filterMode === 'NEEDED_ONLY') return r.neededTotal > 0;
       if (filterMode === 'HAS_STOCK_ONLY') return r.stockTotal > 0;
       return true;
     });
@@ -130,32 +222,29 @@ export const Tab8MasterSummary: React.FC = () => {
 
   // Overall totals for KPI cards
   const kpiTotals = useMemo(() => {
-    let totalPlan = 0;
-    let totalActual = 0;
-    let totalDiff = 0;
-    let totalStock = 0;
+    let totalOrder = 0;
     let totalIssued = 0;
-    let negativeCount = 0;
+    let totalNeeded = 0;
+    let totalStock = 0;
+    let pendingCount = 0;
 
     summaryRows.forEach((r) => {
-      totalPlan += r.planTotal;
-      totalActual += r.actualTotal;
-      totalDiff += r.diffTotal;
+      totalOrder += r.orderTotal;
+      totalIssued += r.issuedTotal;
+      totalNeeded += r.neededTotal;
       totalStock += r.stockTotal;
-      totalIssued += r.prodIssuedTotal;
-      if (r.hasNegative) negativeCount++;
+      if (r.neededTotal > 0) pendingCount++;
     });
 
-    const receivedRatio = totalPlan > 0 ? ((totalActual / totalPlan) * 100).toFixed(1) : '0';
+    const issuedRatio = totalOrder > 0 ? ((totalIssued / totalOrder) * 100).toFixed(1) : '0';
 
     return {
-      totalPlan,
-      totalActual,
-      totalDiff,
-      totalStock,
+      totalOrder,
       totalIssued,
-      negativeCount,
-      receivedRatio,
+      totalNeeded,
+      totalStock,
+      pendingCount,
+      issuedRatio,
     };
   }, [summaryRows]);
 
@@ -201,7 +290,7 @@ export const Tab8MasterSummary: React.FC = () => {
     let stt = 1;
 
     filteredRows.forEach((r) => {
-      // Line 1: Số Trên Phiếu
+      // Line 1: Số trên đơn hàng gốc
       dataRows.push([
         stt,
         r.date,
@@ -210,12 +299,12 @@ export const Tab8MasterSummary: React.FC = () => {
         r.voucherCode,
         r.description,
         r.unit,
-        '1. Số Trên Phiếu (Tab 1)',
-        ...sizes.map((s) => r.planSizes[s] || 0),
-        r.planTotal,
+        '1. Số trên đơn hàng gốc',
+        ...sizes.map((s) => r.orderSizes[s] || 0),
+        r.orderTotal,
       ]);
 
-      // Line 2: Số Thực Tế
+      // Line 2: Số đã xuất
       dataRows.push([
         '',
         '',
@@ -224,12 +313,12 @@ export const Tab8MasterSummary: React.FC = () => {
         '',
         '',
         '',
-        '2. Số Thực Tế (Tab 2)',
-        ...sizes.map((s) => r.actualSizes[s] || 0),
-        r.actualTotal,
+        '2. Số đã xuất',
+        ...sizes.map((s) => r.issuedSizes[s] || 0),
+        r.issuedTotal,
       ]);
 
-      // Line 3: Số Chênh Lệch
+      // Line 3: Số còn cần xuất
       dataRows.push([
         '',
         '',
@@ -238,12 +327,12 @@ export const Tab8MasterSummary: React.FC = () => {
         '',
         '',
         '',
-        '3. Số Chênh Lệch (Tab 3 = 2 - 1)',
-        ...sizes.map((s) => r.diffSizes[s] || 0),
-        r.diffTotal,
+        '3. Số còn cần xuất',
+        ...sizes.map((s) => r.neededSizes[s] || 0),
+        r.neededTotal,
       ]);
 
-      // Line 4: Số Tồn Kho Còn Lại
+      // Line 4: Số còn tồn chưa xuất
       dataRows.push([
         '',
         '',
@@ -252,7 +341,7 @@ export const Tab8MasterSummary: React.FC = () => {
         '',
         '',
         '',
-        '4. Số Tồn Kho Còn Lại (Tab 5)',
+        '4. Số còn tồn chưa xuất',
         ...sizes.map((s) => r.stockSizes[s] || 0),
         r.stockTotal,
       ]);
@@ -262,8 +351,8 @@ export const Tab8MasterSummary: React.FC = () => {
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'ThongKeTongHop_Tab8');
-    XLSX.writeFile(wb, `Tab8_ThongKeTongHop_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'ThongKeTongHop_Tab9');
+    XLSX.writeFile(wb, `Tab9_ThongKeTongHop_${currentCustomer?.name || 'KhachHang'}.xlsx`);
   };
 
   // Print HTML preparation
@@ -278,7 +367,7 @@ export const Tab8MasterSummary: React.FC = () => {
       unit: r.unit,
       sizeQuantities: r.stockSizes,
       totalQty: r.stockTotal,
-      note: `Phiếu: ${r.planTotal} | Thực: ${r.actualTotal} | Lệch: ${r.diffTotal > 0 ? `+${r.diffTotal}` : r.diffTotal} | Tồn: ${r.stockTotal}`,
+      note: `Đơn gốc: ${r.orderTotal} | Đã xuất: ${r.issuedTotal} | Cần xuất: ${r.neededTotal} | Tồn chưa xuất: ${r.stockTotal}`,
     }));
   }, [filteredRows]);
 
@@ -290,10 +379,10 @@ export const Tab8MasterSummary: React.FC = () => {
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
               <BarChart3 className="w-4 h-4 text-sky-600" />
-              <span>TAB 9: BẢNG THỐNG KÊ TỔNG HỢP (PHIẾU - THỰC TẾ - CHÊNH LỆCH - TỒN KHO)</span>
+              <span>TAB 9: BẢNG THỐNG KÊ TỔNG HỢP (ĐƠN GỐC - ĐÃ XUẤT - CÒN CẦN XUẤT - TỒN CHƯA XUẤT)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
-              | Master Reconciliation &amp; Live Stock Overview
+              | Quản lý xuất vật tư theo đơn hàng gốc &amp; kiểm soát tồn kho khả dụng
             </span>
           </div>
 
@@ -346,85 +435,69 @@ export const Tab8MasterSummary: React.FC = () => {
           </div>
         </div>
 
-        {/* 5 KPI Stat Cards */}
-        <div className="p-3 bg-slate-50 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-          {/* 1. Kế hoạch trên phiếu */}
+        {/* 4 KPI Stat Cards theo đúng 4 chỉ số */}
+        <div className="p-3 bg-slate-50 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {/* 1. Số trên đơn hàng gốc */}
           <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                1. Trên Phiếu (Tab 1)
+                1. Đơn Hàng Gốc (PO)
               </span>
               <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-700">
-                Kế hoạch
+                Kế hoạch gốc
               </span>
             </div>
             <p className="text-lg font-mono font-bold text-slate-800 mt-1">
-              {kpiTotals.totalPlan.toLocaleString('vi-VN')}
+              {kpiTotals.totalOrder.toLocaleString('vi-VN')}
             </p>
-            <span className="text-[10px] text-slate-400">Số lượng hợp đồng</span>
+            <span className="text-[10px] text-slate-400">Số lượng trên đơn hàng gốc</span>
           </div>
 
-          {/* 2. Thực tế nhận */}
+          {/* 2. Số đã xuất */}
           <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                2. Thực Tế (Tab 2)
-              </span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800">
-                {kpiTotals.receivedRatio}%
-              </span>
-            </div>
-            <p className="text-lg font-mono font-bold text-emerald-700 mt-1">
-              {kpiTotals.totalActual.toLocaleString('vi-VN')}
-            </p>
-            <span className="text-[10px] text-slate-400">Kho thực nhận</span>
-          </div>
-
-          {/* 3. Chênh lệch */}
-          <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                3. Chênh Lệch (Tab 3)
-              </span>
-              <span
-                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                  kpiTotals.negativeCount > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                {kpiTotals.negativeCount > 0 ? `${kpiTotals.negativeCount} mã thiếu` : 'Khớp đủ'}
-              </span>
-            </div>
-            <p
-              className={`text-lg font-mono font-bold mt-1 ${
-                kpiTotals.totalDiff < 0 ? 'text-rose-600' : kpiTotals.totalDiff > 0 ? 'text-blue-600' : 'text-slate-800'
-              }`}
-            >
-              {kpiTotals.totalDiff > 0 ? `+${kpiTotals.totalDiff.toLocaleString('vi-VN')}` : kpiTotals.totalDiff.toLocaleString('vi-VN')}
-            </p>
-            <span className="text-[10px] text-slate-400">Thực nhận - Phiếu</span>
-          </div>
-
-          {/* 4. Đã Xuất Sản Xuất */}
-          <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                Xuất Cho SX (Tab 6)
+                2. Số Đã Xuất
               </span>
               <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-sky-100 text-sky-800">
-                Đã cấp
+                {kpiTotals.issuedRatio}%
               </span>
             </div>
             <p className="text-lg font-mono font-bold text-sky-700 mt-1">
               {kpiTotals.totalIssued.toLocaleString('vi-VN')}
             </p>
-            <span className="text-[10px] text-slate-400">Cấp phát Chuyền</span>
+            <span className="text-[10px] text-slate-400">Vật tư đã cấp xuống xưởng</span>
           </div>
 
-          {/* 5. Tồn kho còn lại */}
+          {/* 3. Số còn cần xuất */}
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                3. Còn Cần Xuất
+              </span>
+              <span
+                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                  kpiTotals.totalNeeded > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {kpiTotals.totalNeeded > 0 ? `${kpiTotals.pendingCount} mã cần xuất` : 'Đã xuất đủ'}
+              </span>
+            </div>
+            <p
+              className={`text-lg font-mono font-bold mt-1 ${
+                kpiTotals.totalNeeded > 0 ? 'text-amber-700' : 'text-slate-800'
+              }`}
+            >
+              {kpiTotals.totalNeeded.toLocaleString('vi-VN')}
+            </p>
+            <span className="text-[10px] text-slate-400">Đơn gốc - Đã xuất</span>
+          </div>
+
+          {/* 4. Số còn tồn chưa xuất */}
           <div className="bg-white p-2.5 rounded-lg border border-emerald-300 shadow-2xs bg-emerald-50/40">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-emerald-950 uppercase tracking-wider">
-                4. TỒN VẬT TƯ CÒN LẠI
+                4. Tồn Chưa Xuất
               </span>
               <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-200 text-emerald-900">
                 Khả dụng
@@ -433,7 +506,7 @@ export const Tab8MasterSummary: React.FC = () => {
             <p className="text-lg font-mono font-bold text-emerald-900 mt-1">
               {kpiTotals.totalStock.toLocaleString('vi-VN')}
             </p>
-            <span className="text-[10px] text-emerald-700">Sẵn sàng sử dụng</span>
+            <span className="text-[10px] text-emerald-700">Tồn kho sẵn sàng cấp</span>
           </div>
         </div>
 
@@ -499,14 +572,14 @@ export const Tab8MasterSummary: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setFilterMode('NEGATIVE_ONLY')}
+                onClick={() => setFilterMode('NEEDED_ONLY')}
                 className={`px-2.5 py-1 text-[11px] font-semibold rounded ${
-                  filterMode === 'NEGATIVE_ONLY'
-                    ? 'bg-rose-600 text-white font-bold'
-                    : 'text-rose-700 hover:bg-rose-50'
+                  filterMode === 'NEEDED_ONLY'
+                    ? 'bg-amber-600 text-white font-bold'
+                    : 'text-amber-800 hover:bg-amber-50'
                 }`}
               >
-                Có lệch âm ({kpiTotals.negativeCount})
+                Còn cần xuất ({kpiTotals.pendingCount})
               </button>
               <button
                 type="button"
@@ -572,7 +645,7 @@ export const Tab8MasterSummary: React.FC = () => {
                 ) : (
                   filteredRows.map((row) => (
                     <React.Fragment key={row.id}>
-                      {/* Row 1: Số Trên Phiếu */}
+                      {/* Row 1: Số trên đơn hàng gốc */}
                       <tr className="bg-slate-50/50 hover:bg-slate-100/50 border-t border-slate-300">
                         <td rowSpan={4} className="p-2 border-r border-slate-300 text-center font-mono text-slate-500 font-bold bg-slate-50/80 align-middle">
                           {row.stt}
@@ -595,10 +668,10 @@ export const Tab8MasterSummary: React.FC = () => {
 
                         <td className="p-1.5 border-r border-slate-200 text-slate-700 font-medium flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                          <span>1. Số Trên Phiếu (Tab 1)</span>
+                          <span>1. Số trên đơn hàng gốc</span>
                         </td>
                         {sizes.map((s) => {
-                          const q = row.planSizes[s] || 0;
+                          const q = row.orderSizes[s] || 0;
                           return (
                             <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-slate-700">
                               {q > 0 ? q.toLocaleString('vi-VN') : '-'}
@@ -606,93 +679,85 @@ export const Tab8MasterSummary: React.FC = () => {
                           );
                         })}
                         <td className="p-1.5 border-r border-slate-200 text-right font-mono font-bold text-slate-800 bg-slate-100/50">
-                          {row.planTotal.toLocaleString('vi-VN')}
+                          {row.orderTotal.toLocaleString('vi-VN')}
                         </td>
                         <td className="p-1.5 text-center">
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                            Kế hoạch
+                            Đơn gốc
                           </span>
                         </td>
                       </tr>
 
-                      {/* Row 2: Số Thực Tế (Thực Nhận) */}
-                      <tr className="bg-emerald-50/20 hover:bg-emerald-50/40">
-                        <td className="p-1.5 border-r border-slate-200 text-emerald-800 font-medium flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          <span>2. Số Thực Tế (Tab 2)</span>
+                      {/* Row 2: Số đã xuất */}
+                      <tr className="bg-slate-50/20 hover:bg-slate-50/40">
+                        <td className="p-1.5 border-r border-slate-200 text-slate-800 font-medium flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                          <span>2. Số đã xuất</span>
                         </td>
                         {sizes.map((s) => {
-                          const q = row.actualSizes[s] || 0;
+                          const iss = row.issuedSizes[s] || 0;
+                          const ord = row.orderSizes[s] || 0;
+                          const cellClass = getIssuedCellClass(iss, ord);
                           return (
-                            <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-emerald-800 font-semibold">
-                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                            <td key={s} className={`p-1.5 border-r border-slate-200 text-center font-mono ${cellClass}`}>
+                              {iss > 0 ? iss.toLocaleString('vi-VN') : (ord > 0 ? '0' : '-')}
                             </td>
                           );
                         })}
-                        <td className="p-1.5 border-r border-slate-200 text-right font-mono font-bold text-emerald-900 bg-emerald-50/60">
-                          {row.actualTotal.toLocaleString('vi-VN')}
+                        <td className={`p-1.5 border-r border-slate-200 text-right font-mono ${getIssuedTotalClass(row.issuedTotal, row.orderTotal)}`}>
+                          {row.issuedTotal.toLocaleString('vi-VN')}
                         </td>
                         <td className="p-1.5 text-center">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                            Thực nhận
-                          </span>
+                          {getIssuedBadge(row.issuedTotal, row.orderTotal)}
                         </td>
                       </tr>
 
-                      {/* Row 3: Số Chênh Lệch */}
-                      <tr className={row.hasNegative ? 'bg-rose-50/30 hover:bg-rose-50/50' : 'bg-slate-50/20 hover:bg-slate-50/40'}>
+                      {/* Row 3: Số còn cần xuất */}
+                      <tr className={row.neededTotal > 0 ? 'bg-amber-50/30 hover:bg-amber-50/50' : 'bg-slate-50/20 hover:bg-slate-50/40'}>
                         <td className="p-1.5 border-r border-slate-200 font-medium flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full ${row.hasNegative ? 'bg-rose-500' : 'bg-slate-400'}`}></span>
-                          <span className={row.hasNegative ? 'text-rose-800 font-bold' : 'text-slate-700'}>
-                            3. Số Chênh Lệch (Tab 3)
+                          <span className={`w-2 h-2 rounded-full ${row.neededTotal > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                          <span className={row.neededTotal > 0 ? 'text-amber-900 font-bold' : 'text-slate-700'}>
+                            3. Số còn cần xuất
                           </span>
                         </td>
                         {sizes.map((s) => {
-                          const diff = row.diffSizes[s] || 0;
+                          const need = row.neededSizes[s] || 0;
                           return (
                             <td
                               key={s}
                               className={`p-1.5 border-r border-slate-200 text-center font-mono font-bold ${
-                                diff < 0
-                                  ? 'bg-rose-100 text-rose-700'
-                                  : diff > 0
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'text-slate-400'
+                                need > 0 ? 'bg-amber-100/70 text-amber-800' : 'text-slate-400'
                               }`}
                             >
-                              {diff !== 0 ? (diff > 0 ? `+${diff}` : diff) : '-'}
+                              {need > 0 ? need.toLocaleString('vi-VN') : '-'}
                             </td>
                           );
                         })}
                         <td
                           className={`p-1.5 border-r border-slate-200 text-right font-mono font-bold ${
-                            row.diffTotal < 0
-                              ? 'bg-rose-100 text-rose-700'
-                              : row.diffTotal > 0
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-slate-100 text-slate-800'
+                            row.neededTotal > 0 ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-600'
                           }`}
                         >
-                          {row.diffTotal !== 0 ? (row.diffTotal > 0 ? `+${row.diffTotal}` : row.diffTotal) : '0'}
+                          {row.neededTotal.toLocaleString('vi-VN')}
                         </td>
                         <td className="p-1.5 text-center">
-                          {row.hasNegative ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-200 text-rose-900 animate-pulse">
-                              Cần bù KH
+                          {row.neededTotal > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                              Cần xuất
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
-                              Khớp đủ
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              Đã đủ
                             </span>
                           )}
                         </td>
                       </tr>
 
-                      {/* Row 4: Số Tồn Kho Còn Lại */}
+                      {/* Row 4: Số còn tồn chưa xuất */}
                       <tr className="bg-emerald-50/50 hover:bg-emerald-50/70 font-bold border-b-2 border-slate-300">
                         <td className="p-2 border-r border-slate-200 text-emerald-950 font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                          <span>4. TỒN KHO CÒN LẠI (Tab 5)</span>
+                          <span>4. Số còn tồn chưa xuất</span>
                         </td>
                         {sizes.map((s) => {
                           const stock = row.stockSizes[s] || 0;
@@ -733,7 +798,7 @@ export const Tab8MasterSummary: React.FC = () => {
                 {/* Footer Total */}
                 <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-300">
                   <td colSpan={6} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
-                    TỔNG CỘNG TOÀN BỘ TỒN KHO HIỆN CÒN:
+                    TỔNG CỘNG TOÀN BỘ TỒN KHO CHƯA XUẤT:
                   </td>
                   {sizes.map((s) => {
                     const sumSize = filteredRows.reduce((sum, r) => sum + (r.stockSizes[s] || 0), 0);
@@ -767,19 +832,16 @@ export const Tab8MasterSummary: React.FC = () => {
                   <th className="p-2 border-r border-slate-300 min-w-[140px]">Diễn Giải</th>
                   <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
                   <th className="p-2 border-r border-slate-300 text-right min-w-[90px] bg-slate-100 text-slate-800">
-                    1. SL Phiếu
-                  </th>
-                  <th className="p-2 border-r border-slate-300 text-right min-w-[95px] bg-emerald-50 text-emerald-900">
-                    2. Thực Nhận
-                  </th>
-                  <th className="p-2 border-r border-slate-300 text-right min-w-[95px] bg-slate-100 text-slate-900">
-                    3. Chênh Lệch
+                    1. Đơn Gốc
                   </th>
                   <th className="p-2 border-r border-slate-300 text-right min-w-[95px] bg-sky-50 text-sky-900">
-                    Xuất Cho SX
+                    2. Đã Xuất
+                  </th>
+                  <th className="p-2 border-r border-slate-300 text-right min-w-[95px] bg-amber-50 text-amber-900">
+                    3. Còn Cần Xuất
                   </th>
                   <th className="p-2 border-r border-slate-300 text-right min-w-[95px] bg-emerald-100 text-emerald-950 font-bold">
-                    4. TỒN KHO
+                    4. Tồn Chưa Xuất
                   </th>
                   <th className="p-2 text-center min-w-[90px]">
                     TÌNH TRẠNG
@@ -789,7 +851,7 @@ export const Tab8MasterSummary: React.FC = () => {
               <tbody className="divide-y divide-slate-200 font-sans">
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-slate-400 text-xs italic">
+                    <td colSpan={10} className="p-8 text-center text-slate-400 text-xs italic">
                       Không tìm thấy đơn hàng nào!
                     </td>
                   </tr>
@@ -812,32 +874,25 @@ export const Tab8MasterSummary: React.FC = () => {
                         {r.unit}
                       </td>
                       <td className="p-2 border-r border-slate-200 text-right font-mono font-semibold text-slate-800 bg-slate-50/50">
-                        {r.planTotal.toLocaleString('vi-VN')}
+                        {r.orderTotal.toLocaleString('vi-VN')}
                       </td>
-                      <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-emerald-800 bg-emerald-50/30">
-                        {r.actualTotal.toLocaleString('vi-VN')}
+                      <td className={`p-2 border-r border-slate-200 text-right font-mono font-bold ${getIssuedTotalClass(r.issuedTotal, r.orderTotal)}`}>
+                        {r.issuedTotal.toLocaleString('vi-VN')}
                       </td>
                       <td
                         className={`p-2 border-r border-slate-200 text-right font-mono font-bold ${
-                          r.diffTotal < 0
-                            ? 'bg-rose-50 text-rose-700'
-                            : r.diffTotal > 0
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'text-slate-500'
+                          r.neededTotal > 0 ? 'bg-amber-100/70 text-amber-900' : 'bg-slate-50 text-slate-500'
                         }`}
                       >
-                        {r.diffTotal !== 0 ? (r.diffTotal > 0 ? `+${r.diffTotal}` : r.diffTotal) : '0'}
-                      </td>
-                      <td className="p-2 border-r border-slate-200 text-right font-mono font-semibold text-sky-800 bg-sky-50/30">
-                        {r.prodIssuedTotal.toLocaleString('vi-VN')}
+                        {r.neededTotal.toLocaleString('vi-VN')}
                       </td>
                       <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-emerald-950 bg-emerald-100/50">
                         {r.stockTotal.toLocaleString('vi-VN')}
                       </td>
                       <td className="p-2 text-center">
-                        {r.hasNegative ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
-                            Cần bù KH
+                        {r.neededTotal > 0 ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                            Cần xuất
                           </span>
                         ) : r.stockTotal > 0 ? (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
@@ -859,16 +914,13 @@ export const Tab8MasterSummary: React.FC = () => {
                     TỔNG CỘNG TẤT CẢ ĐƠN HÀNG:
                   </td>
                   <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-slate-900">
-                    {kpiTotals.totalPlan.toLocaleString('vi-VN')}
-                  </td>
-                  <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-emerald-800">
-                    {kpiTotals.totalActual.toLocaleString('vi-VN')}
-                  </td>
-                  <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-slate-900">
-                    {kpiTotals.totalDiff !== 0 ? (kpiTotals.totalDiff > 0 ? `+${kpiTotals.totalDiff}` : kpiTotals.totalDiff) : '0'}
+                    {kpiTotals.totalOrder.toLocaleString('vi-VN')}
                   </td>
                   <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-sky-800">
                     {kpiTotals.totalIssued.toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-amber-900">
+                    {kpiTotals.totalNeeded.toLocaleString('vi-VN')}
                   </td>
                   <td className="p-2 border-r border-slate-300 text-right font-mono font-extrabold text-emerald-950">
                     {kpiTotals.totalStock.toLocaleString('vi-VN')}
@@ -885,7 +937,7 @@ export const Tab8MasterSummary: React.FC = () => {
         {/* Footer info bar */}
         <div className="p-2 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-3 text-[11px]">
-            <span>💡 Bảng thống kê đối chiếu liên hoàn: <strong>1. Trên Phiếu</strong> ➔ <strong>2. Thực Tế</strong> ➔ <strong>3. Chênh Lệch</strong> ➔ <strong>4. Tồn Kho</strong>.</span>
+            <span>💡 Bảng thống kê đối chiếu liên hoàn: <strong>1. Số trên đơn hàng gốc</strong> ➔ <strong>2. Số đã xuất</strong> ➔ <strong>3. Số còn cần xuất</strong> ➔ <strong>4. Số còn tồn chưa xuất</strong>.</span>
           </div>
           <div className="text-[11px] text-slate-600">
             Tổng tồn khả dụng: <strong className="text-emerald-700">{kpiTotals.totalStock.toLocaleString('vi-VN')}</strong> đơn vị

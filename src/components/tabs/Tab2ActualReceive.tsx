@@ -741,7 +741,7 @@ export const Tab2ActualReceive: React.FC = () => {
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
               <PackageCheck className="w-4 h-4 text-emerald-600" />
-              <span>TAB 2: SỐ THỰC NHẬN (NHẬP THỰC TẾ & TỒN KHO BAN ĐẦU)</span>
+              <span>TAB 2: SỐ VẬT TƯ THỰC NHẬN (NHẬP THỰC TẾ & TỒN KHO BAN ĐẦU)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
               | Tự động thêm dòng khi dán Excel • Nhấn Enter để lưu

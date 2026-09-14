@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { Customer, PurchaseOrder } from '../../types';
 import { getCurrentDateFormatted } from '../../utils/dateUtils';
@@ -13,9 +13,22 @@ import {
   Download,
   CheckCircle2,
   Sparkles,
+  Save,
+  Clipboard,
 } from 'lucide-react';
 import { exportCustomersAndPOsToExcel } from '../../utils/excelExport';
 import { useMessageBox } from '../common/MessageBox';
+
+interface EditablePoRow {
+  id: string;
+  poNumber: string;
+  style: string;
+  orderDate: string;
+  unit: string;
+  sizeQuantities: Record<string, number | ''>;
+  note: string;
+  isExisting?: boolean;
+}
 
 export const CustomerTab: React.FC = () => {
   const { alert, confirm, toast } = useMessageBox();
@@ -30,6 +43,7 @@ export const CustomerTab: React.FC = () => {
     addPurchaseOrder,
     updatePurchaseOrder,
     deletePurchaseOrder,
+    savePurchaseOrders,
   } = useInventory();
 
   // Active customer selection
@@ -60,6 +74,333 @@ export const CustomerTab: React.FC = () => {
       cust.sizeRuns.find((sr) => sr.id === cust.activeSizeRunId) ||
       cust.sizeRuns[0];
     return activeRun?.sizes || ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
+  };
+
+  const customerSizes = useMemo(() => {
+    if (!currentCust) return [];
+    return getCustomerSizes(currentCust);
+  }, [currentCust]);
+
+  const createEmptyPoRow = (): EditablePoRow => ({
+    id: `po-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    poNumber: '',
+    style: '',
+    orderDate: getCurrentDateFormatted(),
+    unit: 'đôi',
+    sizeQuantities: {},
+    note: '',
+    isExisting: false,
+  });
+
+  const [draftPoRows, setDraftPoRows] = useState<EditablePoRow[]>([]);
+  const poGridRef = useRef<HTMLDivElement>(null);
+
+  // Sync draft PO rows with customer POs
+  useEffect(() => {
+    if (currentCustomerPOs && currentCustomerPOs.length > 0) {
+      const rows: EditablePoRow[] = currentCustomerPOs.map((po) => {
+        const sq: Record<string, number | ''> = {};
+        if (po.sizeQuantities) {
+          Object.entries(po.sizeQuantities).forEach(([k, v]) => {
+            sq[k] = v;
+          });
+        }
+        return {
+          id: po.id,
+          poNumber: po.poNumber,
+          style: po.style,
+          orderDate: po.orderDate,
+          unit: po.unit || 'đôi',
+          sizeQuantities: sq,
+          note: po.note || '',
+          isExisting: true,
+        };
+      });
+      // Always append 1 empty row at the bottom for quick entry
+      rows.push(createEmptyPoRow());
+      setDraftPoRows(rows);
+    } else {
+      setDraftPoRows([createEmptyPoRow(), createEmptyPoRow(), createEmptyPoRow()]);
+    }
+  }, [currentCust?.id, currentCustomerPOs]);
+
+  const getPoRowTotal = (row: EditablePoRow) => {
+    return customerSizes.reduce((sum, s) => {
+      const val = row.sizeQuantities[s];
+      return sum + (typeof val === 'number' ? val : 0);
+    }, 0);
+  };
+
+  const poColumns = useMemo(() => {
+    const cols: Array<{
+      key: string;
+      label: string;
+      size?: string;
+      isSize?: boolean;
+      isCalculated?: boolean;
+      minWidth: string;
+    }> = [
+      { key: 'poNumber', label: 'Mã PO', minWidth: '120px' },
+      { key: 'style', label: 'Mã Style / Kiểu Dáng', minWidth: '150px' },
+      { key: 'orderDate', label: 'Ngày Nhận Đơn', minWidth: '110px' },
+      { key: 'unit', label: 'ĐVT', minWidth: '70px' },
+      ...customerSizes.map((s) => ({
+        key: `size_${s}`,
+        label: `Size ${s}`,
+        size: s,
+        isSize: true,
+        minWidth: '52px',
+      })),
+      { key: 'totalQty', label: 'Tổng SL Kế Hoạch', isCalculated: true, minWidth: '95px' },
+      { key: 'note', label: 'Ghi Chú', minWidth: '130px' },
+    ];
+    return cols;
+  }, [customerSizes]);
+
+  const handlePoCellChange = (rIdx: number, field: string, value: any) => {
+    setDraftPoRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[rIdx], sizeQuantities: { ...next[rIdx].sizeQuantities } };
+      if (field.startsWith('size_')) {
+        const sizeKey = field.replace('size_', '');
+        if (value === '' || value === '-' || value === null || value === undefined) {
+          row.sizeQuantities[sizeKey] = '';
+        } else {
+          const num = parseFloat(String(value).replace(/,/g, ''));
+          row.sizeQuantities[sizeKey] = isNaN(num) ? '' : Math.max(0, num);
+        }
+      } else if (field === 'poNumber') {
+        row.poNumber = String(value).toUpperCase();
+      } else {
+        (row as any)[field] = value;
+      }
+      next[rIdx] = row;
+      return next;
+    });
+  };
+
+  const handlePoContainerPaste = (e: React.ClipboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'TEXTAREA') return;
+
+    const targetInput = target.closest('[data-po-idx]') as HTMLElement | null;
+    if (target.tagName === 'INPUT' && !targetInput) {
+      return;
+    }
+
+    const clipText = e.clipboardData.getData('text');
+    if (!clipText) return;
+
+    const rawLines = clipText.split(/\r?\n/);
+    while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '') {
+      rawLines.pop();
+    }
+    if (rawLines.length === 0) return;
+
+    const matrix = rawLines.map((line) => line.split('\t'));
+    const isMultiCell = matrix.length > 1 || matrix[0].length > 1;
+
+    if (!isMultiCell && targetInput && !clipText.includes('\t') && !clipText.includes('\n')) {
+      return;
+    }
+
+    let startRowIdx = 0;
+    let startColIdx = 0;
+
+    if (targetInput) {
+      const rIdxStr = targetInput.getAttribute('data-po-idx');
+      const colKeyStr = targetInput.getAttribute('data-col-key') || '';
+      if (rIdxStr !== null) {
+        startRowIdx = Math.max(0, parseInt(rIdxStr, 10));
+      }
+      const foundColIdx = poColumns.findIndex((c) => c.key === colKeyStr);
+      if (foundColIdx >= 0) {
+        startColIdx = foundColIdx;
+      }
+    } else {
+      const firstEmptyIdx = draftPoRows.findIndex(
+        (r) => !r.poNumber.trim() && !r.style.trim() && getPoRowTotal(r) === 0
+      );
+      startRowIdx = firstEmptyIdx >= 0 ? firstEmptyIdx : draftPoRows.length;
+      startColIdx = 0;
+    }
+
+    e.preventDefault();
+
+    let dataMatrix = matrix;
+    if (
+      dataMatrix.length > 1 &&
+      dataMatrix[0].some((c) =>
+        /^(ngày(\s*nhận)?|mã\s*po|mã\s*style|kiểu\s*dáng|đvt|stt|size|sl\s*kế\s*hoạch)$/i.test(
+          c.trim().toLowerCase()
+        )
+      )
+    ) {
+      dataMatrix = dataMatrix.slice(1);
+    }
+
+    const nextRows = draftPoRows.map((r) => ({
+      ...r,
+      sizeQuantities: { ...r.sizeQuantities },
+    }));
+
+    dataMatrix.forEach((rowCells, rOffset) => {
+      const targetRowIdx = startRowIdx + rOffset;
+
+      // Auto expand rows on paste!
+      while (targetRowIdx >= nextRows.length) {
+        nextRows.push(createEmptyPoRow());
+      }
+
+      const rowObj = nextRows[targetRowIdx];
+
+      rowCells.forEach((cellRaw, cOffset) => {
+        const targetColIdx = startColIdx + cOffset;
+        if (targetColIdx >= poColumns.length) return;
+
+        const colDef = poColumns[targetColIdx];
+        const val = cellRaw.trim();
+
+        if (colDef.isSize && colDef.size) {
+          if (!val || val === '-' || val === '0') {
+            rowObj.sizeQuantities[colDef.size] = '';
+          } else {
+            const num = parseFloat(val.replace(/,/g, ''));
+            rowObj.sizeQuantities[colDef.size] = isNaN(num) ? '' : Math.max(0, num);
+          }
+        } else if (colDef.key === 'poNumber') {
+          if (val) rowObj.poNumber = val.toUpperCase();
+        } else if (colDef.key === 'style') {
+          if (val) rowObj.style = val;
+        } else if (colDef.key === 'orderDate') {
+          if (val) rowObj.orderDate = val;
+        } else if (colDef.key === 'unit') {
+          if (val) rowObj.unit = val;
+        } else if (colDef.key === 'note') {
+          if (val) rowObj.note = val;
+        }
+      });
+    });
+
+    setDraftPoRows(nextRows);
+    toast(`📋 Đã dán thành công ${dataMatrix.length} dòng đơn hàng PO từ Excel!`);
+  };
+
+  const handleSaveAllPOs = () => {
+    if (!currentCust) return;
+    const validRows = draftPoRows.filter((r) => r.poNumber.trim() !== '');
+
+    if (validRows.length === 0) {
+      alert('Vui lòng nhập ít nhất 1 dòng có Mã PO để lưu!');
+      return;
+    }
+
+    const poMap = new Set<string>();
+    for (const r of validRows) {
+      const pCode = r.poNumber.trim().toUpperCase();
+      if (poMap.has(pCode)) {
+        alert(`Trùng mã PO "${pCode}". Mỗi mã PO chỉ được có 1 dòng duy nhất!`);
+        return;
+      }
+      poMap.add(pCode);
+    }
+
+    const toSave: PurchaseOrder[] = validRows.map((r) => {
+      const cleanSizes: Record<string, number> = {};
+      let totalSum = 0;
+      customerSizes.forEach((s) => {
+        const v = r.sizeQuantities[s];
+        if (typeof v === 'number' && v > 0) {
+          cleanSizes[s] = v;
+          totalSum += v;
+        }
+      });
+
+      return {
+        id: r.id,
+        customerId: currentCust.id,
+        poNumber: r.poNumber.trim().toUpperCase(),
+        style: r.style.trim() || 'Sneaker Standard',
+        orderDate: r.orderDate.trim() || getCurrentDateFormatted(),
+        targetQty: totalSum,
+        unit: r.unit.trim() || 'đôi',
+        sizeQuantities: cleanSizes,
+        note: r.note.trim(),
+      };
+    });
+
+    savePurchaseOrders(toSave);
+    toast(`✅ Đã lưu thành công ${toSave.length} đơn hàng PO cho đối tác "${currentCust.name}"!`);
+  };
+
+  const handlePoKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' && target.hasAttribute('data-po-idx')) {
+        e.preventDefault();
+        handleSaveAllPOs();
+      }
+    }
+  };
+
+  const handleAddPoRows = (count: number) => {
+    setDraftPoRows((prev) => {
+      const next = [...prev];
+      for (let i = 0; i < count; i++) {
+        next.push(createEmptyPoRow());
+      }
+      return next;
+    });
+    toast(`Đã thêm ${count} dòng PO mới!`);
+  };
+
+  const handleDeletePoRow = (idx: number) => {
+    const row = draftPoRows[idx];
+    if (row.poNumber.trim()) {
+      confirm(`Bạn có chắc muốn xóa PO "${row.poNumber}"?`, () => {
+        deletePurchaseOrder(row.id);
+        setDraftPoRows((prev) => prev.filter((_, i) => i !== idx));
+        toast(`Đã xóa PO "${row.poNumber}"!`);
+      });
+    } else {
+      setDraftPoRows((prev) => prev.filter((_, i) => i !== idx));
+    }
+  };
+
+  const handleExportPoExcel = () => {
+    if (!currentCust) return;
+    const validRows = draftPoRows.filter((r) => r.poNumber.trim() !== '');
+    if (validRows.length === 0) {
+      alert('Chưa có đơn PO nào để xuất Excel.');
+      return;
+    }
+
+    const headers = [
+      'STT',
+      'Mã PO',
+      'Mã Style / Kiểu Dáng',
+      'Ngày Nhận Đơn',
+      'ĐVT',
+      ...customerSizes.map((s) => `Size ${s}`),
+      'Tổng SL Kế Hoạch',
+      'Ghi Chú',
+    ];
+
+    const dataRows = validRows.map((r, idx) => [
+      idx + 1,
+      r.poNumber,
+      r.style,
+      r.orderDate,
+      r.unit,
+      ...customerSizes.map((s) => (typeof r.sizeQuantities[s] === 'number' ? r.sizeQuantities[s] : 0)),
+      getPoRowTotal(r),
+      r.note || '',
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'DonHang_PO');
+    XLSX.writeFile(wb, `DonHang_PO_${currentCust.code}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // Open Modal to Add New Customer
@@ -388,90 +729,219 @@ export const CustomerTab: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* PHẦN 2: DANH SÁCH ĐƠN HÀNG PO CỦA ĐỐI TÁC ĐANG CHỌN                       */}
+      {/* PHẦN 2: QUẢN LÝ ĐƠN HÀNG PO VỚI DẢI SIZE (NỀN XANH DƯƠNG NHẠT, DÁN EXCEL)  */}
       {/* ========================================================================= */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      <div
+        ref={poGridRef}
+        onKeyDown={handlePoKeyDown}
+        onPaste={handlePoContainerPaste}
+        className="bg-[#f0f7ff] border-2 border-sky-200/90 rounded-xl p-5 shadow-xs space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-sky-200">
           <div>
             <div className="flex items-center gap-2">
-              <Package className="w-4 h-4 text-sky-600" />
-              <h3 className="text-sm font-bold text-slate-900">
-                Danh Sách Đơn Hàng Hợp Đồng (PO) - Đối Tác:{' '}
-                <span className="text-sky-600">{currentCust?.name}</span>
+              <Package className="w-5 h-5 text-sky-600" />
+              <h3 className="text-sm font-bold text-sky-950 uppercase tracking-wide">
+                Quản Lý Đơn Hàng PO &amp; Dải Size - Đối Tác:{' '}
+                <span className="text-sky-700 underline underline-offset-2">{currentCust?.name}</span>
               </h3>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Theo dõi các hợp đồng PO, Style giày, kế hoạch sản lượng và tiến độ gia công.
+            <p className="text-xs text-sky-800/80 mt-1">
+              Bảng ma trận dải size cho từng PO. Hỗ trợ <strong>Dán trực tiếp từ Excel</strong> (tự động nhảy dòng) • Nhấn <strong>Enter</strong> để lưu ngay.
             </p>
           </div>
-          <button
-            onClick={handleOpenAddPo}
-            className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Tạo Đơn PO Mới</span>
-          </button>
+
+          <div className="flex items-center flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => handleAddPoRows(1)}
+              className="inline-flex items-center gap-1 bg-white hover:bg-sky-100 text-sky-700 border border-sky-300 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition shadow-2xs cursor-pointer"
+              title="Thêm 1 dòng PO mới"
+            >
+              <Plus className="w-3.5 h-3.5 text-sky-600" />
+              <span>+ 1 Dòng</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleAddPoRows(5)}
+              className="inline-flex items-center gap-1 bg-white hover:bg-sky-100 text-sky-700 border border-sky-300 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition shadow-2xs cursor-pointer"
+              title="Thêm 5 dòng PO mới"
+            >
+              <Plus className="w-3.5 h-3.5 text-sky-600" />
+              <span>+ 5 Dòng</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSaveAllPOs}
+              className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-xs transition cursor-pointer"
+              title="Lưu tất cả đơn hàng PO đang nhập vào hệ thống (hoặc nhấn phím Enter)"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Lưu Đơn Hàng PO (Enter)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportPoExcel}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-xs transition cursor-pointer"
+              title="Xuất danh sách PO ra Excel kèm dải size"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Xuất Excel PO</span>
+            </button>
+          </div>
         </div>
 
-        {/* PO Table */}
-        <div className="overflow-x-auto">
+        {/* PO Matrix Table */}
+        <div className="overflow-x-auto border border-sky-200 rounded-lg bg-white shadow-2xs">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-50 text-slate-700 uppercase font-semibold text-[11px] border-b border-slate-200">
+            <thead className="bg-sky-100/80 text-sky-950 uppercase font-bold text-[11px] border-b border-sky-200 select-none">
               <tr>
-                <th className="p-3">Mã PO</th>
-                <th className="p-3">Mã Style / Kiểu Dáng</th>
-                <th className="p-3">Ngày Nhận Đơn</th>
-                <th className="p-3 text-right">SL Kế Hoạch</th>
-                <th className="p-3">Ghi Chú</th>
-                <th className="p-3 text-center">Thao Tác</th>
+                <th className="p-2.5 border-r border-sky-200 text-center w-10">#</th>
+                <th className="p-2.5 border-r border-sky-200 min-w-[120px]">Mã PO</th>
+                <th className="p-2.5 border-r border-sky-200 min-w-[150px]">Mã Style / Kiểu Dáng</th>
+                <th className="p-2.5 border-r border-sky-200 min-w-[110px]">Ngày Nhận Đơn</th>
+                <th className="p-2.5 border-r border-sky-200 text-center min-w-[70px]">ĐVT</th>
+                {customerSizes.map((s) => (
+                  <th
+                    key={s}
+                    className="p-2.5 border-r border-sky-200 text-center font-mono font-bold min-w-[52px] bg-sky-200/50 text-sky-950"
+                  >
+                    Size {s}
+                  </th>
+                ))}
+                <th className="p-2.5 border-r border-sky-200 text-right min-w-[95px] bg-sky-200/70 text-sky-950 font-bold">
+                  Tổng SL KH
+                </th>
+                <th className="p-2.5 border-r border-sky-200 min-w-[130px]">Ghi Chú</th>
+                <th className="p-2.5 text-center min-w-[60px]">Thao Tác</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {currentCustomerPOs.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-6 text-center text-slate-400 text-xs">
-                    Chưa có đơn PO nào cho đối tác này. Bấm "+ Tạo Đơn PO Mới" để thêm!
-                  </td>
-                </tr>
-              ) : (
-                currentCustomerPOs.map((po) => (
-                  <tr key={po.id} className="hover:bg-slate-50/80 transition">
-                    <td className="p-3 font-mono font-bold text-sky-700">{po.poNumber}</td>
-                    <td className="p-3 font-medium text-slate-900">{po.style}</td>
-                    <td className="p-3 text-slate-600">{po.orderDate}</td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-900">
-                      {po.targetQty.toLocaleString('vi-VN')} {po.unit}
+            <tbody className="divide-y divide-sky-100 font-sans">
+              {draftPoRows.map((row, rIdx) => {
+                const rowTotal = getPoRowTotal(row);
+                return (
+                  <tr key={row.id} className="hover:bg-sky-50/50 transition">
+                    <td className="p-1.5 border-r border-sky-100 text-center font-mono text-slate-400 font-bold bg-sky-50/30">
+                      {rIdx + 1}
                     </td>
-                    <td className="p-3 text-slate-500 max-w-xs truncate text-[11px]">
-                      {po.note || '-'}
+                    <td className="p-1.5 border-r border-sky-100">
+                      <input
+                        type="text"
+                        placeholder="VD: PO-101"
+                        value={row.poNumber}
+                        data-po-idx={rIdx}
+                        data-col-key="poNumber"
+                        onChange={(e) => handlePoCellChange(rIdx, 'poNumber', e.target.value)}
+                        className="w-full text-xs font-mono font-bold text-sky-700 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none uppercase"
+                      />
                     </td>
-                    <td className="p-3 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => handleOpenEditPo(po)}
-                          className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition"
-                          title="Sửa PO"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            confirm(`Bạn có chắc muốn xóa PO "${po.poNumber}"?`, () => {
-                              deletePurchaseOrder(po.id);
-                              toast(`Đã xóa PO "${po.poNumber}"!`);
-                            });
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Xóa PO"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                    <td className="p-1.5 border-r border-sky-100">
+                      <input
+                        type="text"
+                        placeholder="VD: Sneaker Pro"
+                        value={row.style}
+                        data-po-idx={rIdx}
+                        data-col-key="style"
+                        onChange={(e) => handlePoCellChange(rIdx, 'style', e.target.value)}
+                        className="w-full text-xs text-slate-900 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                      />
+                    </td>
+                    <td className="p-1.5 border-r border-sky-100">
+                      <input
+                        type="text"
+                        placeholder="DD/MM/YYYY"
+                        value={row.orderDate}
+                        data-po-idx={rIdx}
+                        data-col-key="orderDate"
+                        onChange={(e) => handlePoCellChange(rIdx, 'orderDate', e.target.value)}
+                        className="w-full text-xs font-mono text-slate-700 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none text-center"
+                      />
+                    </td>
+                    <td className="p-1.5 border-r border-sky-100">
+                      <input
+                        type="text"
+                        placeholder="đôi"
+                        value={row.unit}
+                        data-po-idx={rIdx}
+                        data-col-key="unit"
+                        onChange={(e) => handlePoCellChange(rIdx, 'unit', e.target.value)}
+                        className="w-full text-xs text-slate-700 bg-white border border-sky-200 rounded px-1.5 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none text-center"
+                      />
+                    </td>
+                    {customerSizes.map((s) => {
+                      const val = row.sizeQuantities[s];
+                      return (
+                        <td key={s} className="p-1 border-r border-sky-100">
+                          <input
+                            type="text"
+                            placeholder="-"
+                            value={val !== undefined && val !== null ? val : ''}
+                            data-po-idx={rIdx}
+                            data-col-key={`size_${s}`}
+                            onChange={(e) => handlePoCellChange(rIdx, `size_${s}`, e.target.value)}
+                            className="w-full text-xs text-center font-mono font-semibold text-slate-800 bg-white border border-sky-200 rounded px-1 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="p-1.5 border-r border-sky-100 text-right font-mono font-bold text-sky-900 bg-sky-50/60">
+                      {rowTotal > 0 ? rowTotal.toLocaleString('vi-VN') : '-'}
+                    </td>
+                    <td className="p-1.5 border-r border-sky-100">
+                      <input
+                        type="text"
+                        placeholder="Ghi chú đơn..."
+                        value={row.note}
+                        data-po-idx={rIdx}
+                        data-col-key="note"
+                        onChange={(e) => handlePoCellChange(rIdx, 'note', e.target.value)}
+                        className="w-full text-xs text-slate-600 bg-white border border-sky-200 rounded px-2 py-1 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                      />
+                    </td>
+                    <td className="p-1.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePoRow(rIdx)}
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                        title="Xóa dòng này"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              })}
             </tbody>
+            {/* Table Footer with column totals */}
+            <tfoot className="bg-sky-100/90 font-bold border-t-2 border-sky-300 text-sky-950">
+              <tr>
+                <td colSpan={5} className="p-2 border-r border-sky-200 text-right uppercase text-[11px] tracking-wider">
+                  Tổng Cộng Kế Hoạch ({draftPoRows.filter((r) => r.poNumber.trim() !== '').length} PO):
+                </td>
+                {customerSizes.map((s) => {
+                  const sizeSum = draftPoRows.reduce((sum, r) => {
+                    const v = r.sizeQuantities[s];
+                    return sum + (typeof v === 'number' ? v : 0);
+                  }, 0);
+                  return (
+                    <td key={s} className="p-2 border-r border-sky-200 text-center font-mono font-bold text-xs text-sky-900">
+                      {sizeSum > 0 ? sizeSum.toLocaleString('vi-VN') : '0'}
+                    </td>
+                  );
+                })}
+                <td className="p-2 border-r border-sky-200 text-right font-mono font-extrabold text-xs text-sky-950 bg-sky-200/80">
+                  {draftPoRows
+                    .reduce((sum, r) => sum + getPoRowTotal(r), 0)
+                    .toLocaleString('vi-VN')}
+                </td>
+                <td colSpan={2} className="p-2 text-center text-xs text-sky-800">
+                  Nhấn Enter để lưu
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>

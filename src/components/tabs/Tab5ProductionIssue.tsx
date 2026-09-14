@@ -546,7 +546,7 @@ export const Tab5ProductionIssue: React.FC = () => {
             <div className="flex items-center gap-2">
               <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
                 <Send className="w-4 h-4 text-sky-600" />
-                <span>TAB 6: XUẤT CHO SẢN XUẤT (CẤP PHÁT XUỐNG CHUYỀN)</span>
+              <span>TAB 6: XUẤT VẬT TƯ CHO SẢN XUẤT (CẤP PHÁT XUỐNG CHUYỀN)</span>
               </h3>
               <span className="text-[11px] text-slate-500 hidden md:inline">
                 | Căn cứ từ Tab 2 &amp; Tab 5 (Tồn kho) • Tự động trừ lùi tồn kho ở Tab 5
