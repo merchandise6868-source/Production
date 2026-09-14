@@ -28,6 +28,7 @@ export const Tab8MasterSummary: React.FC = () => {
     currentCustomerRealtimeStock,
     currentCustomerProductionIssues,
     currentCustomerFinishedGoodsStock,
+    currentCustomerFinishedGoodsDeliveries,
   } = useInventory();
 
   const sizes = useMemo(() => {
@@ -101,11 +102,13 @@ export const Tab8MasterSummary: React.FC = () => {
   // Combine data per PO + itemCode
   const summaryRows = useMemo(() => {
     return currentCustomerPlanOrders.map((plan, idx) => {
-      const key = `${plan.poNumber.trim().toUpperCase()}__${plan.itemCode.trim().toUpperCase()}`;
+      const poNum = plan.poNumber.trim().toUpperCase();
+      const itemCd = (plan.itemCode || '').trim().toUpperCase();
+      const key = `${poNum}__${itemCd}`;
 
       // 1. Số trên đơn hàng gốc (đọc từ bảng quản lý đơn hàng trong Khách hàng và dải size)
       const originalPO = currentCustomerPOs.find(
-        (p) => p.poNumber.trim().toUpperCase() === plan.poNumber.trim().toUpperCase()
+        (p) => p.poNumber.trim().toUpperCase() === poNum
       );
 
       const orderSizes: Record<string, number> = {};
@@ -131,21 +134,62 @@ export const Tab8MasterSummary: React.FC = () => {
       }
 
       // Stock item (Tab 5)
-      const stockItem = currentCustomerRealtimeStock.find((st) => st.key === key);
+      const stockItem =
+        currentCustomerRealtimeStock.find((st) => st.key === key) ||
+        currentCustomerRealtimeStock.find((st) => st.poNumber.trim().toUpperCase() === poNum);
 
-      // 2. Số đã xuất (Xuất vật tư cho sản xuất)
+      // 2. Số đã xuất: Đọc trực tiếp từ dòng TỔNG CỘNG ĐÃ XUẤT trong Tab 8 (Kho & Xuất Thành Phẩm) theo mỗi PO
+      let poDeliveries = currentCustomerFinishedGoodsDeliveries.filter(
+        (d) =>
+          d.poNumber.trim().toUpperCase() === poNum &&
+          itemCd &&
+          d.itemCode &&
+          d.itemCode.trim().toUpperCase() === itemCd
+      );
+
+      // Nếu không khớp cả mã hàng, lấy theo mã PO
+      if (poDeliveries.length === 0) {
+        poDeliveries = currentCustomerFinishedGoodsDeliveries.filter(
+          (d) => d.poNumber.trim().toUpperCase() === poNum
+        );
+      }
+
+      // Đối chiếu thêm với currentCustomerFinishedGoodsStock (nơi lưu trữ tồn kho TP tổng hợp theo PO)
+      const fgStockItem =
+        currentCustomerFinishedGoodsStock.find(
+          (fg) =>
+            fg.poNumber.trim().toUpperCase() === poNum &&
+            itemCd &&
+            fg.itemCode &&
+            fg.itemCode.trim().toUpperCase() === itemCd
+        ) ||
+        currentCustomerFinishedGoodsStock.find(
+          (fg) => fg.poNumber.trim().toUpperCase() === poNum
+        );
+
       const issuedSizes: Record<string, number> = {};
       let issuedTotal = 0;
+
       sizes.forEach((s) => {
-        const val = stockItem?.productionIssuedSizes?.[s] || 0;
+        let val = 0;
+        if (poDeliveries.length > 0) {
+          val = poDeliveries.reduce((sum, d) => sum + (Number(d.sizeQuantities?.[s]) || 0), 0);
+        } else if (fgStockItem?.deliveredSizes && typeof fgStockItem.deliveredSizes[s] === 'number') {
+          val = Number(fgStockItem.deliveredSizes[s]) || 0;
+        }
         issuedSizes[s] = val;
         issuedTotal += val;
       });
-      if (issuedTotal === 0 && stockItem && stockItem.totalProductionIssued > 0) {
-        issuedTotal = stockItem.totalProductionIssued;
+
+      if (issuedTotal === 0) {
+        if (poDeliveries.length > 0) {
+          issuedTotal = poDeliveries.reduce((sum, d) => sum + (Number(d.totalQty) || 0), 0);
+        } else if (fgStockItem && fgStockItem.totalDelivered > 0) {
+          issuedTotal = fgStockItem.totalDelivered;
+        }
       }
 
-      // 3. Số còn cần xuất = Số trên đơn hàng gốc - Số đã xuất
+      // 3. Số còn cần xuất = Số trên đơn hàng gốc - Số đã xuất (đọc từ Tab 8)
       const neededSizes: Record<string, number> = {};
       let neededTotal = 0;
       sizes.forEach((s) => {
@@ -199,6 +243,8 @@ export const Tab8MasterSummary: React.FC = () => {
     currentCustomerPlanOrders,
     currentCustomerPOs,
     currentCustomerRealtimeStock,
+    currentCustomerFinishedGoodsDeliveries,
+    currentCustomerFinishedGoodsStock,
     sizes,
   ]);
 
@@ -466,7 +512,7 @@ export const Tab8MasterSummary: React.FC = () => {
             <p className="text-lg font-mono font-bold text-sky-700 mt-1">
               {kpiTotals.totalIssued.toLocaleString('vi-VN')}
             </p>
-            <span className="text-[10px] text-slate-400">Vật tư đã cấp xuống xưởng</span>
+            <span className="text-[10px] text-slate-400">Tổng đã xuất giao từ Tab 8</span>
           </div>
 
           {/* 3. Số còn cần xuất */}
@@ -949,9 +995,9 @@ export const Tab8MasterSummary: React.FC = () => {
       <PrintHtmlModal
         isOpen={showPrintModal}
         onClose={() => setShowPrintModal(false)}
-        title="BẢNG THỐNG KÊ TỔNG HỢP GIAO NHẬN, ĐỐI SOÁT &amp; TỒN KHO (TAB 8)"
+        title="BẢNG THỐNG KÊ TỔNG HỢP GIAO NHẬN, ĐỐI SOÁT &amp; TỒN KHO (TAB 9)"
         customerName={currentCustomer?.name || 'Chung'}
-        documentCode="08-TK/TONGHOP"
+        documentCode="09-TK/TONGHOP"
         sizes={sizes}
         rows={printRows}
       />
