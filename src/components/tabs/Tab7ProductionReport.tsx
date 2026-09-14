@@ -76,28 +76,19 @@ export const Tab7ProductionReport: React.FC = () => {
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  // Danh sách chi tiết tiêu chuẩn ngành giày để luôn có gợi ý phong phú
-  const DEFAULT_SHOE_DETAILS = [
-    'Mũi giày',
-    'Hông giày',
-    'Gót giày',
-    'Đế giày',
-    'Lót giày',
-    'Quai giày',
-    'Lưỡi gà',
-    'Da mặt',
-    'Vải lót',
-    'Chỉ may',
-    'Khóa kéo',
-  ];
-
-  // Lấy danh sách tên chi tiết / vật tư có trong PO đó + gợi ý thông dụng
+  // Lấy danh sách tên vật tư theo từ PO đó thôi
   const getPoDetails = (poNumber: string) => {
-    const matching = currentCustomerPlanOrders.filter(
-      (p) => p.poNumber.toUpperCase() === (poNumber || '').toUpperCase()
-    );
-    const details = matching.map((p) => p.description || p.itemCode).filter(Boolean);
-    return Array.from(new Set([...details, ...DEFAULT_SHOE_DETAILS]));
+    if (!poNumber) return [];
+    const cleanPo = poNumber.trim().toUpperCase();
+    const fromPlan = currentCustomerPlanOrders
+      .filter((p) => p.poNumber.trim().toUpperCase() === cleanPo)
+      .map((p) => p.description?.trim() || p.itemCode?.trim())
+      .filter(Boolean);
+    const fromStock = currentCustomerRealtimeStock
+      .filter((s) => s.poNumber.trim().toUpperCase() === cleanPo)
+      .map((s) => s.description?.trim() || s.itemCode?.trim())
+      .filter(Boolean);
+    return Array.from(new Set([...fromPlan, ...fromStock]));
   };
 
   const createBlankItem = (idx: number, isEditing: boolean = true): Tab7ReportItem => {
@@ -234,16 +225,37 @@ export const Tab7ProductionReport: React.FC = () => {
         if (item.id !== id) return item;
         const updated = { ...item, [field]: value };
         if (field === 'poNumber') {
-          const match = currentCustomerPlanOrders.find(
-            (p) => p.poNumber.toUpperCase() === String(value).toUpperCase()
+          const cleanVal = String(value).trim().toUpperCase();
+          const matches = currentCustomerPlanOrders.filter(
+            (p) => p.poNumber.trim().toUpperCase() === cleanVal
           );
-          if (match) {
+          if (matches.length > 0) {
+            const first = matches[0];
+            updated.itemCode = first.itemCode;
+            updated.unit = first.unit || 'PRS';
+            updated.detailName = first.description || first.itemCode;
+          }
+        }
+        if (field === 'detailName') {
+          const match = currentCustomerPlanOrders.find(
+            (p) =>
+              p.poNumber.trim().toUpperCase() === updated.poNumber.trim().toUpperCase() &&
+              (p.description?.trim() === String(value).trim() || p.itemCode?.trim() === String(value).trim())
+          );
+          if (match && match.itemCode) {
             updated.itemCode = match.itemCode;
-            updated.unit = match.unit;
-            const details = getPoDetails(match.poNumber);
-            if (details.length > 0 && !updated.detailName) {
-              updated.detailName = details[0];
-            }
+            if (match.unit) updated.unit = match.unit;
+          }
+        }
+        if (field === 'itemCode') {
+          const match = currentCustomerPlanOrders.find(
+            (p) =>
+              p.poNumber.trim().toUpperCase() === updated.poNumber.trim().toUpperCase() &&
+              p.itemCode.trim().toUpperCase() === String(value).trim().toUpperCase()
+          );
+          if (match && match.description) {
+            updated.detailName = match.description;
+            if (match.unit) updated.unit = match.unit;
           }
         }
         return updated;
@@ -829,7 +841,7 @@ export const Tab7ProductionReport: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Tên Chi Tiết (Cho phép vừa gõ vừa chọn gợi ý) */}
+                      {/* Tên Chi Tiết (Dropdown danh sách vật tư theo từ PO đó) */}
                       <td
                         rowSpan={2}
                         className="p-0 border-r border-slate-300 align-middle bg-white min-w-[120px]"
@@ -844,23 +856,27 @@ export const Tab7ProductionReport: React.FC = () => {
                           </div>
                         ) : (
                           <div className="p-1">
-                            <input
-                              type="text"
-                              list={`tab7-details-${item.id}`}
+                            <select
+                              data-row-idx={idx * 2}
+                              data-col-key="detailName"
                               value={item.detailName || ''}
                               onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
                               onKeyDown={(e) => {
                                 handleCellArrowNavigation(e, gridContainerRef);
                                 if (e.key === 'Enter') handleSaveRow(item.id);
                               }}
-                              placeholder="Gõ hoặc chọn..."
-                              className="w-full h-8 px-2 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white"
-                            />
-                            <datalist id={`tab7-details-${item.id}`}>
+                              className="w-full h-8 px-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white cursor-pointer text-slate-800 font-medium"
+                            >
+                              <option value="">-- Chọn tên vật tư trong PO --</option>
                               {getPoDetails(item.poNumber).map((d) => (
-                                <option key={d} value={d} />
+                                <option key={d} value={d}>
+                                  {d}
+                                </option>
                               ))}
-                            </datalist>
+                              {item.detailName && !getPoDetails(item.poNumber).includes(item.detailName) && (
+                                <option value={item.detailName}>{item.detailName}</option>
+                              )}
+                            </select>
                           </div>
                         )}
                       </td>

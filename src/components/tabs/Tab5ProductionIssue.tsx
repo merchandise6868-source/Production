@@ -70,28 +70,19 @@ export const Tab5ProductionIssue: React.FC = () => {
     return ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
   }, [activeSizeRun]);
 
-  // Danh sách chi tiết tiêu chuẩn ngành giày để luôn có gợi ý phong phú
-  const DEFAULT_SHOE_DETAILS = [
-    'Mũi giày',
-    'Hông giày',
-    'Gót giày',
-    'Đế giày',
-    'Lót giày',
-    'Quai giày',
-    'Lưỡi gà',
-    'Da mặt',
-    'Vải lót',
-    'Chỉ may',
-    'Khóa kéo',
-  ];
-
-  // Lấy danh sách tên chi tiết / vật tư có trong PO đó + gợi ý thông dụng
+  // Lấy danh sách tên vật tư theo từ PO đó thôi
   const getPoDetails = (poNumber: string) => {
-    const matching = currentCustomerPlanOrders.filter(
-      (p) => p.poNumber.toUpperCase() === (poNumber || '').toUpperCase()
-    );
-    const details = matching.map((p) => p.description || p.itemCode).filter(Boolean);
-    return Array.from(new Set([...details, ...DEFAULT_SHOE_DETAILS]));
+    if (!poNumber) return [];
+    const cleanPo = poNumber.trim().toUpperCase();
+    const fromPlan = currentCustomerPlanOrders
+      .filter((p) => p.poNumber.trim().toUpperCase() === cleanPo)
+      .map((p) => p.description?.trim() || p.itemCode?.trim())
+      .filter(Boolean);
+    const fromStock = currentCustomerRealtimeStock
+      .filter((s) => s.poNumber.trim().toUpperCase() === cleanPo)
+      .map((s) => s.description?.trim() || s.itemCode?.trim())
+      .filter(Boolean);
+    return Array.from(new Set([...fromPlan, ...fromStock]));
   };
 
   // Nút Xuất đủ: Điền nhanh 100% số lượng từ Tồn kho Tab 5 hoặc Kế hoạch Tab 1
@@ -240,12 +231,37 @@ export const Tab5ProductionIssue: React.FC = () => {
         if (item.id !== id) return item;
         const updated = { ...item, [field]: value };
         if (field === 'poNumber') {
-          const match = currentCustomerPlanOrders.find(
-            (p) => p.poNumber.toUpperCase() === String(value).toUpperCase()
+          const cleanVal = String(value).trim().toUpperCase();
+          const matches = currentCustomerPlanOrders.filter(
+            (p) => p.poNumber.trim().toUpperCase() === cleanVal
           );
-          if (match) {
+          if (matches.length > 0) {
+            const first = matches[0];
+            updated.itemCode = first.itemCode;
+            updated.unit = first.unit || 'PRS';
+            updated.detailName = first.description || first.itemCode;
+          }
+        }
+        if (field === 'detailName') {
+          const match = currentCustomerPlanOrders.find(
+            (p) =>
+              p.poNumber.trim().toUpperCase() === updated.poNumber.trim().toUpperCase() &&
+              (p.description?.trim() === String(value).trim() || p.itemCode?.trim() === String(value).trim())
+          );
+          if (match && match.itemCode) {
             updated.itemCode = match.itemCode;
-            updated.unit = match.unit;
+            if (match.unit) updated.unit = match.unit;
+          }
+        }
+        if (field === 'itemCode') {
+          const match = currentCustomerPlanOrders.find(
+            (p) =>
+              p.poNumber.trim().toUpperCase() === updated.poNumber.trim().toUpperCase() &&
+              p.itemCode.trim().toUpperCase() === String(value).trim().toUpperCase()
+          );
+          if (match && match.description) {
+            updated.detailName = match.description;
+            if (match.unit) updated.unit = match.unit;
           }
         }
         return updated;
@@ -806,7 +822,7 @@ export const Tab5ProductionIssue: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Tên Chi Tiết (Cho phép vừa gõ vừa chọn gợi ý) */}
+                    {/* Tên Chi Tiết (Dropdown danh sách vật tư theo từ PO đó) */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
                         <div
@@ -817,27 +833,27 @@ export const Tab5ProductionIssue: React.FC = () => {
                           {item.detailName || '-'}
                         </div>
                       ) : (
-                        <>
-                          <input
-                            type="text"
-                            list={`tab5-details-${item.id}`}
-                            data-row-idx={idx}
-                            data-col-key="detailName"
-                            value={item.detailName || ''}
-                            onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
-                            onKeyDown={(e) => {
-                              handleCellArrowNavigation(e, gridContainerRef);
-                              if (e.key === 'Enter') handleSaveRow(item.id);
-                            }}
-                            placeholder="Gõ hoặc chọn..."
-                            className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white text-slate-700 font-medium"
-                          />
-                          <datalist id={`tab5-details-${item.id}`}>
-                            {getPoDetails(item.poNumber).map((det) => (
-                              <option key={det} value={det} />
-                            ))}
-                          </datalist>
-                        </>
+                        <select
+                          data-row-idx={idx}
+                          data-col-key="detailName"
+                          value={item.detailName || ''}
+                          onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white cursor-pointer text-slate-700 font-medium"
+                        >
+                          <option value="">-- Chọn tên vật tư trong PO --</option>
+                          {getPoDetails(item.poNumber).map((det) => (
+                            <option key={det} value={det}>
+                              {det}
+                            </option>
+                          ))}
+                          {item.detailName && !getPoDetails(item.poNumber).includes(item.detailName) && (
+                            <option value={item.detailName}>{item.detailName}</option>
+                          )}
+                        </select>
                       )}
                     </td>
 
