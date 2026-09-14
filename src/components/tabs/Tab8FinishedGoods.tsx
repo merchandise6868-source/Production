@@ -10,7 +10,10 @@ import {
   Trash2,
   Edit,
   Save,
+  Plus,
+  X,
   CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
@@ -40,201 +43,118 @@ export const Tab8FinishedGoods: React.FC = () => {
   const [selectedForPrint, setSelectedForPrint] = useState<FinishedGoodsDeliveryRow | null>(null);
   const [showStockPrintModal, setShowStockPrintModal] = useState(false);
 
-  // State quản lý trạng thái mở khóa sửa (in-place unlock) theo từng SKU
-  const [editingKeys, setEditingKeys] = useState<Record<string, boolean>>({});
+  // Map các đợt xuất đang mở khóa sửa (In-place editing): delivery.id -> FinishedGoodsDeliveryRow
+  const [editingDeliveries, setEditingDeliveries] = useState<Record<string, FinishedGoodsDeliveryRow>>({});
 
-  // Local state lưu trữ số lượng xuất đang nhập trực tiếp trên dòng 2 của bảng (theo item.key)
-  const [deliveredInputs, setDeliveredInputs] = useState<Record<string, Record<string, number | ''>>>({});
+  // Map các dòng soạn đợt xuất mới theo từng PO (item.key = poNumber__itemCode)
+  const [draftDeliveries, setDraftDeliveries] = useState<Record<string, FinishedGoodsDeliveryRow | null>>({});
 
-  // Helper lấy giá trị đang nhập (hoặc từ dữ liệu đã lưu nếu chưa gõ)
-  const getItemDeliveredSizes = (item: FinishedGoodsStockItem): Record<string, number | ''> => {
-    if (deliveredInputs[item.key]) {
-      return deliveredInputs[item.key];
-    }
-    const init: Record<string, number | ''> = {};
+  // Helper lấy danh sách các đợt xuất đã lưu của 1 PO cụ thể
+  const getPoDeliveries = (item: FinishedGoodsStockItem): FinishedGoodsDeliveryRow[] => {
+    return currentCustomerFinishedGoodsDeliveries.filter(
+      (d) =>
+        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
+        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
+    );
+  };
+
+  // Helper tạo đợt xuất mới trống cho 1 PO
+  const createBlankDelivery = (item: FinishedGoodsStockItem, batchNum: number): FinishedGoodsDeliveryRow => {
+    const emptySq: Record<string, number> = {};
     sizes.forEach((s) => {
-      const savedVal = item.deliveredSizes[s];
-      init[s] = savedVal > 0 ? savedVal : '';
+      emptySq[s] = 0;
     });
-    return init;
+
+    return {
+      id: `draft-del-${Date.now()}-${item.key}-${Math.random().toString(36).slice(2, 6)}`,
+      customerId: currentCustomer?.id || '',
+      deliveryDate: defaultDate,
+      poNumber: item.poNumber,
+      itemCode: item.itemCode,
+      deliveryVoucher: `HD-${item.poNumber}-${String(batchNum).padStart(2, '0')}`,
+      receiver: currentCustomer?.name || 'Khách hàng',
+      unit: item.unit || 'PRS',
+      sizeQuantities: emptySq,
+      totalQty: 0,
+      note: `Xuất đợt ${batchNum}`,
+      createdAt: new Date().toISOString(),
+    };
   };
 
-  const isRowEditing = (item: FinishedGoodsStockItem): boolean => {
-    if (typeof editingKeys[item.key] === 'boolean') {
-      return editingKeys[item.key];
+  // Helper lấy thông tin dòng soạn đợt mới (hoặc tạo mặc định nếu chưa có đợt xuất nào)
+  const getDraftForPo = (item: FinishedGoodsStockItem): FinishedGoodsDeliveryRow | null => {
+    if (draftDeliveries[item.key] !== undefined) {
+      return draftDeliveries[item.key];
     }
-    // Nếu chưa có số lượng xuất nào thì mặc định mở khóa để nhập
-    return item.totalDelivered === 0;
+    const existing = getPoDeliveries(item);
+    if (existing.length === 0) {
+      return createBlankDelivery(item, 1);
+    }
+    return null;
   };
 
-  const handleStartEdit = (key: string) => {
-    setEditingKeys((prev) => ({ ...prev, [key]: true }));
+  // Mở thêm 1 đợt xuất mới cho PO
+  const handleOpenAddDelivery = (item: FinishedGoodsStockItem) => {
+    const existing = getPoDeliveries(item);
+    const nextBatch = existing.length + 1;
+    const newDraft = createBlankDelivery(item, nextBatch);
+    setDraftDeliveries((prev) => ({ ...prev, [item.key]: newDraft }));
+    toast(`➕ Mở đợt xuất mới (Đợt ${nextBatch}) cho PO ${item.poNumber}!`);
   };
 
-  const handleUpdateItemSize = (itemKey: string, size: string, val: string, currentItem: FinishedGoodsStockItem) => {
-    const current = deliveredInputs[itemKey] || getItemDeliveredSizes(currentItem);
-    const num = val === '' ? '' : Math.max(0, parseInt(val, 10) || 0);
-    setDeliveredInputs((prev) => ({
-      ...prev,
-      [itemKey]: {
-        ...current,
-        [size]: num,
-      },
-    }));
-  };
-
-  // Paste ma trận số lượng từ Excel vào dòng 2 bắt đầu từ size được click
-  const handleSizePaste = (
-    e: React.ClipboardEvent,
-    itemKey: string,
-    startSize: string,
-    currentItem: FinishedGoodsStockItem
-  ) => {
-    const clip = e.clipboardData.getData('text');
-    if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
-
-    const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
-    if (parts.length > 1) {
-      e.preventDefault();
-      const current = deliveredInputs[itemKey] || getItemDeliveredSizes(currentItem);
-      const nextSq = { ...current };
-      const startIdx = sizes.indexOf(startSize);
-
-      parts.forEach((p, offset) => {
-        const targetIdx = startIdx + offset;
-        if (targetIdx < sizes.length) {
-          const targetSize = sizes[targetIdx];
-          const num = parseInt(p.replace(/,/g, ''), 10);
-          nextSq[targetSize] = isNaN(num) ? '' : Math.max(0, num);
-        }
-      });
-
-      setDeliveredInputs((prev) => ({
+  // Cập nhật giá trị ô trên dòng soạn đợt mới
+  const handleUpdateDraftField = (itemKey: string, field: keyof FinishedGoodsDeliveryRow, value: any) => {
+    setDraftDeliveries((prev) => {
+      const current = prev[itemKey];
+      if (!current) return prev;
+      return {
         ...prev,
-        [itemKey]: nextSq,
-      }));
-      toast(`📋 Đã dán ${parts.length} số lượng xuất bắt đầu từ Size ${startSize}!`);
-    }
-  };
-
-  // Lưu số lượng xuất trực tiếp cho 1 PO/SKU và KHÓA DÒNG TẠI CHỖ (Không mở popup form)
-  const handleSaveOutbound = (item: FinishedGoodsStockItem) => {
-    if (!currentCustomer) return;
-
-    const currentSq = deliveredInputs[item.key] || getItemDeliveredSizes(item);
-    const cleanedSizes: Record<string, number> = {};
-    let total = 0;
-    let hasOverStock = false;
-    let overStockMsg = '';
-
-    sizes.forEach((s) => {
-      const val = typeof currentSq[s] === 'number' ? Number(currentSq[s]) : 0;
-      if (val > 0) {
-        cleanedSizes[s] = val;
-        total += val;
-
-        const inbound = item.inboundSizes[s] || 0;
-        if (val > inbound) {
-          hasOverStock = true;
-          overStockMsg += `• Size ${s}: Xuất ${val} nhưng nhập kho chỉ có ${inbound} đôi!\n`;
-        }
-      }
+        [itemKey]: {
+          ...current,
+          [field]: value,
+        },
+      };
     });
-
-    if (total <= 0) {
-      alert('Vui lòng nhập số lượng xuất cho ít nhất một Size!', 'Chưa nhập số lượng', 'warning');
-      return;
-    }
-
-    if (hasOverStock) {
-      alert(
-        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất không vượt quá nhập kho.`,
-        'Vượt Tồn Kho Thành Phẩm',
-        'danger'
-      );
-      return;
-    }
-
-    const existingDelivery = currentCustomerFinishedGoodsDeliveries.find(
-      (d) =>
-        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
-        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
-    );
-
-    if (existingDelivery) {
-      const updated: FinishedGoodsDeliveryRow = {
-        ...existingDelivery,
-        sizeQuantities: cleanedSizes,
-        totalQty: total,
-      };
-      updateFinishedGoodsDelivery(updated);
-    } else {
-      const newDelivery: FinishedGoodsDeliveryRow = {
-        id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        customerId: currentCustomer.id,
-        deliveryDate: defaultDate,
-        poNumber: item.poNumber,
-        itemCode: item.itemCode,
-        deliveryVoucher: `XKTP-${item.poNumber}`,
-        receiver: currentCustomer.name || 'Khách hàng',
-        unit: item.unit || 'PRS',
-        sizeQuantities: cleanedSizes,
-        totalQty: total,
-        note: 'Xuất giao thành phẩm cho khách hàng',
-        createdAt: new Date().toISOString(),
-      };
-      addFinishedGoodsDelivery(newDelivery);
-    }
-
-    // KHÓA DÒNG TẠI CHỖ
-    setEditingKeys((prev) => ({ ...prev, [item.key]: false }));
-    toast(`🔒 Đã lưu & khóa số lượng xuất PO ${item.poNumber} (${total.toLocaleString('vi-VN')} đôi)! Nhấn Sửa ✏️ để mở khóa sửa lại.`);
   };
 
-  // Xóa / Hủy số lượng đã xuất cho 1 PO/SKU
-  const handleDeleteOutbound = (item: FinishedGoodsStockItem) => {
-    const existingDeliveries = currentCustomerFinishedGoodsDeliveries.filter(
-      (d) =>
-        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
-        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
-    );
+  const handleUpdateDraftSize = (itemKey: string, size: string, val: string) => {
+    setDraftDeliveries((prev) => {
+      const current = prev[itemKey];
+      if (!current) return prev;
+      const num = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
+      const nextSq = { ...current.sizeQuantities, [size]: num };
+      const total = Object.values(nextSq).reduce((sum, v) => sum + (Number(v) || 0), 0);
+      return {
+        ...prev,
+        [itemKey]: {
+          ...current,
+          sizeQuantities: nextSq,
+          totalQty: total,
+        },
+      };
+    });
+  };
 
-    if (existingDeliveries.length === 0 && (!deliveredInputs[item.key] || item.totalDelivered === 0)) {
-      alert('Chưa có số lượng xuất nào được lưu cho đơn hàng này.');
+  // Hủy dòng soạn đợt mới
+  const handleCancelDraft = (itemKey: string) => {
+    setDraftDeliveries((prev) => ({ ...prev, [itemKey]: null }));
+  };
+
+  // Lưu đợt xuất mới và khóa dòng tại chỗ
+  const handleSaveDraftDelivery = (item: FinishedGoodsStockItem) => {
+    if (!currentCustomer) return;
+    const draft = getDraftForPo(item);
+    if (!draft) return;
+
+    if (!draft.deliveryVoucher.trim()) {
+      alert('Vui lòng nhập Số Hóa Đơn / Phiếu Xuất!', 'Thiếu thông tin', 'warning');
       return;
     }
 
-    confirm(
-      `Bạn có chắc chắn muốn xóa/hủy toàn bộ số lượng xuất của PO ${item.poNumber}?\nTồn kho thành phẩm sẽ được hoàn trả 100%!`,
-      () => {
-        existingDeliveries.forEach((d) => deleteFinishedGoodsDelivery(d.id));
-        const emptySq: Record<string, number | ''> = {};
-        sizes.forEach((s) => {
-          emptySq[s] = '';
-        });
-        setDeliveredInputs((prev) => ({
-          ...prev,
-          [item.key]: emptySq,
-        }));
-        setEditingKeys((prev) => ({ ...prev, [item.key]: true }));
-        toast(`Đã xóa số lượng xuất của PO ${item.poNumber}. Tồn kho thành phẩm đã được phục hồi!`);
-      }
-    );
-  };
-
-  // In phiếu xuất cho PO này
-  const handlePrintDelivery = (item: FinishedGoodsStockItem) => {
-    const existing = currentCustomerFinishedGoodsDeliveries.find(
-      (d) =>
-        d.poNumber.toUpperCase() === item.poNumber.toUpperCase() &&
-        d.itemCode.toUpperCase() === item.itemCode.toUpperCase()
-    );
-
-    const currentSq = deliveredInputs[item.key] || getItemDeliveredSizes(item);
     const cleanedSizes: Record<string, number> = {};
     let total = 0;
     sizes.forEach((s) => {
-      const v = typeof currentSq[s] === 'number' ? Number(currentSq[s]) : 0;
+      const v = draft.sizeQuantities[s] || 0;
       if (v > 0) {
         cleanedSizes[s] = v;
         total += v;
@@ -242,26 +162,262 @@ export const Tab8FinishedGoods: React.FC = () => {
     });
 
     if (total <= 0) {
-      alert('Chưa có số lượng xuất nào để in phiếu.');
+      alert('Vui lòng nhập số lượng xuất cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
       return;
     }
 
-    const delObj: FinishedGoodsDeliveryRow = existing || {
-      id: `fg-del-print-${Date.now()}`,
-      customerId: currentCustomer?.id || '',
-      deliveryDate: defaultDate,
+    // Kiểm tra xuất vượt tồn kho thành phẩm
+    const existingDeliveries = getPoDeliveries(item);
+    let hasOverStock = false;
+    let overStockMsg = '';
+
+    sizes.forEach((s) => {
+      const alreadyDelivered = existingDeliveries.reduce((sum, d) => sum + (d.sizeQuantities[s] || 0), 0);
+      const currentInbound = item.inboundSizes[s] || 0;
+      const currentStockAvailable = currentInbound - alreadyDelivered;
+      const willDeliver = cleanedSizes[s] || 0;
+
+      if (willDeliver > currentStockAvailable) {
+        hasOverStock = true;
+        overStockMsg += `• Size ${s}: Nhập ${willDeliver} đôi, nhưng tồn kho chỉ còn ${currentStockAvailable} đôi (Nhập: ${currentInbound}, Đã xuất trước đó: ${alreadyDelivered})!\n`;
+      }
+    });
+
+    if (hasOverStock) {
+      alert(
+        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất.`,
+        'Vượt Tồn Kho Thành Phẩm',
+        'danger'
+      );
+      return;
+    }
+
+    const finalDelivery: FinishedGoodsDeliveryRow = {
+      id: `fg-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      customerId: currentCustomer.id,
+      deliveryDate: draft.deliveryDate.trim() || defaultDate,
       poNumber: item.poNumber,
       itemCode: item.itemCode,
-      deliveryVoucher: `XKTP-${item.poNumber}`,
-      receiver: currentCustomer?.name || 'Khách hàng',
-      unit: item.unit,
+      deliveryVoucher: draft.deliveryVoucher.trim().toUpperCase(),
+      receiver: draft.receiver || currentCustomer.name || 'Khách hàng',
+      unit: item.unit || 'PRS',
       sizeQuantities: cleanedSizes,
       totalQty: total,
-      note: 'Xuất giao thành phẩm cho khách hàng',
+      note: draft.note || `Xuất giao đợt ${draft.deliveryVoucher}`,
       createdAt: new Date().toISOString(),
     };
 
-    setSelectedForPrint(delObj);
+    addFinishedGoodsDelivery(finalDelivery);
+    setDraftDeliveries((prev) => ({ ...prev, [item.key]: null }));
+    toast(`🔒 Đã lưu & khóa đợt xuất ${finalDelivery.deliveryVoucher} (${total.toLocaleString('vi-VN')} đôi)!`);
+  };
+
+  // Mở khóa sửa một đợt xuất đã lưu (In-place edit)
+  const handleStartEditDelivery = (delivery: FinishedGoodsDeliveryRow) => {
+    setEditingDeliveries((prev) => ({
+      ...prev,
+      [delivery.id]: {
+        ...delivery,
+        sizeQuantities: { ...delivery.sizeQuantities },
+      },
+    }));
+  };
+
+  // Cập nhật giá trị ô khi đang sửa đợt xuất đã lưu
+  const handleUpdateEditingField = (deliveryId: string, field: keyof FinishedGoodsDeliveryRow, value: any) => {
+    setEditingDeliveries((prev) => {
+      const current = prev[deliveryId];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [deliveryId]: {
+          ...current,
+          [field]: value,
+        },
+      };
+    });
+  };
+
+  const handleUpdateEditingSize = (deliveryId: string, size: string, val: string) => {
+    setEditingDeliveries((prev) => {
+      const current = prev[deliveryId];
+      if (!current) return prev;
+      const num = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
+      const nextSq = { ...current.sizeQuantities, [size]: num };
+      const total = Object.values(nextSq).reduce((sum, v) => sum + (Number(v) || 0), 0);
+      return {
+        ...prev,
+        [deliveryId]: {
+          ...current,
+          sizeQuantities: nextSq,
+          totalQty: total,
+        },
+      };
+    });
+  };
+
+  // Hủy sửa đợt xuất
+  const handleCancelEditDelivery = (deliveryId: string) => {
+    setEditingDeliveries((prev) => {
+      const next = { ...prev };
+      delete next[deliveryId];
+      return next;
+    });
+  };
+
+  // Lưu lại đợt xuất đang sửa
+  const handleSaveEditDelivery = (deliveryId: string, item: FinishedGoodsStockItem) => {
+    const editObj = editingDeliveries[deliveryId];
+    if (!editObj) return;
+
+    if (!editObj.deliveryVoucher.trim()) {
+      alert('Vui lòng nhập Số Hóa Đơn / Phiếu Xuất!', 'Thiếu thông tin', 'warning');
+      return;
+    }
+
+    const cleanedSizes: Record<string, number> = {};
+    let total = 0;
+    sizes.forEach((s) => {
+      const v = editObj.sizeQuantities[s] || 0;
+      if (v > 0) {
+        cleanedSizes[s] = v;
+        total += v;
+      }
+    });
+
+    if (total <= 0) {
+      alert('Vui lòng nhập số lượng xuất cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
+      return;
+    }
+
+    const otherDeliveries = getPoDeliveries(item).filter((d) => d.id !== deliveryId);
+    let hasOverStock = false;
+    let overStockMsg = '';
+
+    sizes.forEach((s) => {
+      const otherDelivered = otherDeliveries.reduce((sum, d) => sum + (d.sizeQuantities[s] || 0), 0);
+      const currentInbound = item.inboundSizes[s] || 0;
+      const available = currentInbound - otherDelivered;
+      const willDeliver = cleanedSizes[s] || 0;
+
+      if (willDeliver > available) {
+        hasOverStock = true;
+        overStockMsg += `• Size ${s}: Sửa thành ${willDeliver} đôi, nhưng tồn kho chỉ còn ${available} đôi!\n`;
+      }
+    });
+
+    if (hasOverStock) {
+      alert(
+        `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO THÀNH PHẨM:\n${overStockMsg}\nVui lòng điều chỉnh lại số lượng xuất.`,
+        'Vượt Tồn Kho Thành Phẩm',
+        'danger'
+      );
+      return;
+    }
+
+    const updated: FinishedGoodsDeliveryRow = {
+      ...editObj,
+      deliveryVoucher: editObj.deliveryVoucher.trim().toUpperCase(),
+      sizeQuantities: cleanedSizes,
+      totalQty: total,
+    };
+
+    updateFinishedGoodsDelivery(updated);
+    setEditingDeliveries((prev) => {
+      const next = { ...prev };
+      delete next[deliveryId];
+      return next;
+    });
+
+    toast(`🔒 Đã cập nhật & khóa đợt xuất ${updated.deliveryVoucher}!`);
+  };
+
+  // Xóa 1 đợt xuất
+  const handleDeleteDelivery = (delivery: FinishedGoodsDeliveryRow) => {
+    confirm(
+      `Bạn có chắc chắn muốn xóa đợt xuất ${delivery.deliveryVoucher} (Ngày ${delivery.deliveryDate}, ${delivery.totalQty} đôi)?\nSố lượng xuất sẽ được tự động hoàn trả lại tồn kho thành phẩm!`,
+      () => {
+        deleteFinishedGoodsDelivery(delivery.id);
+        setEditingDeliveries((prev) => {
+          const next = { ...prev };
+          delete next[delivery.id];
+          return next;
+        });
+        toast(`Đã xóa đợt xuất ${delivery.deliveryVoucher}. Tồn kho thành phẩm đã được hoàn lại!`);
+      }
+    );
+  };
+
+  // Dán từ Excel vào hàng đợt xuất bắt đầu từ size được click
+  const handleSizePaste = (
+    e: React.ClipboardEvent,
+    isDraft: boolean,
+    targetKeyOrId: string,
+    startSize: string
+  ) => {
+    const clip = e.clipboardData.getData('text');
+    if (!clip || (!clip.includes('\t') && !clip.includes(' '))) return;
+
+    const parts = clip.trim().split(/[\t\s]+/).filter(Boolean);
+    if (parts.length > 1) {
+      e.preventDefault();
+      const startIdx = sizes.indexOf(startSize);
+
+      if (isDraft) {
+        setDraftDeliveries((prev) => {
+          const current = prev[targetKeyOrId];
+          if (!current) return prev;
+          const nextSq = { ...current.sizeQuantities };
+          parts.forEach((p, offset) => {
+            const targetIdx = startIdx + offset;
+            if (targetIdx < sizes.length) {
+              const s = sizes[targetIdx];
+              const num = parseInt(p.replace(/,/g, ''), 10);
+              nextSq[s] = isNaN(num) ? 0 : Math.max(0, num);
+            }
+          });
+          const total = Object.values(nextSq).reduce((sum, v) => sum + (Number(v) || 0), 0);
+          return {
+            ...prev,
+            [targetKeyOrId]: {
+              ...current,
+              sizeQuantities: nextSq,
+              totalQty: total,
+            },
+          };
+        });
+      } else {
+        setEditingDeliveries((prev) => {
+          const current = prev[targetKeyOrId];
+          if (!current) return prev;
+          const nextSq = { ...current.sizeQuantities };
+          parts.forEach((p, offset) => {
+            const targetIdx = startIdx + offset;
+            if (targetIdx < sizes.length) {
+              const s = sizes[targetIdx];
+              const num = parseInt(p.replace(/,/g, ''), 10);
+              nextSq[s] = isNaN(num) ? 0 : Math.max(0, num);
+            }
+          });
+          const total = Object.values(nextSq).reduce((sum, v) => sum + (Number(v) || 0), 0);
+          return {
+            ...prev,
+            [targetKeyOrId]: {
+              ...current,
+              sizeQuantities: nextSq,
+              totalQty: total,
+            },
+          };
+        });
+      }
+
+      toast(`📋 Đã dán ${parts.length} số lượng xuất bắt đầu từ Size ${startSize}!`);
+    }
+  };
+
+  // In riêng 1 phiếu xuất kho / hóa đơn
+  const handlePrintDelivery = (delivery: FinishedGoodsDeliveryRow) => {
+    setSelectedForPrint(delivery);
   };
 
   // Danh sách tồn kho thành phẩm đã lọc
@@ -276,7 +432,7 @@ export const Tab8FinishedGoods: React.FC = () => {
     });
   }, [currentCustomerFinishedGoodsStock, searchQuery]);
 
-  // Xuất Excel Tồn Kho Thành Phẩm
+  // Xuất Excel Tồn Kho & Lịch Sử Xuất Thành Phẩm
   const handleExportStockExcel = () => {
     if (filteredStock.length === 0) {
       alert('Không có dữ liệu tồn kho thành phẩm để xuất Excel.');
@@ -288,60 +444,89 @@ export const Tab8FinishedGoods: React.FC = () => {
       'Mã PO',
       'Mã Hàng (Style)',
       'ĐVT',
-      'Chỉ Số',
+      'Chỉ Số Thành Phẩm',
+      'Ngày Xuất',
+      'Số HĐ / Phiếu Xuất',
       ...sizes.map((s) => `Size ${s}`),
-      'Tổng Cộng',
+      'Tổng SL',
+      'Trạng Thái',
     ];
 
     const dataRows: any[] = [];
     filteredStock.forEach((item, idx) => {
-      const deliveredSizes = getItemDeliveredSizes(item);
-      const deliveredTotal = sizes.reduce((sum, s) => {
-        const v = deliveredSizes[s];
-        return sum + (typeof v === 'number' ? v : 0);
-      }, 0);
+      const poDeliveries = getPoDeliveries(item);
+      const totalDeliveredForSize: Record<string, number> = {};
+      sizes.forEach((s) => {
+        totalDeliveredForSize[s] = poDeliveries.reduce((sum, d) => sum + (d.sizeQuantities[s] || 0), 0);
+      });
+      const grandTotalDelivered = Object.values(totalDeliveredForSize).reduce((a, b) => a + b, 0);
+      const grandTotalStock = item.totalInbound - grandTotalDelivered;
 
-      const stockTotal = item.totalInbound - deliveredTotal;
-
+      // 1. Dòng Nhập kho
       dataRows.push([
         idx + 1,
         item.poNumber,
         item.itemCode,
         item.unit,
-        '1. Nhập kho từ chuyền (Tab 7)',
+        '1. Nhập kho TP (từ Chuyền 1,2,3)',
+        '-',
+        'Nhập từ Tab 7',
         ...sizes.map((s) => item.inboundSizes[s] || 0),
         item.totalInbound,
+        'Sản xuất xong',
       ]);
 
-      dataRows.push([
-        '',
-        '',
-        '',
-        '',
-        '2. Đã xuất giao KH',
-        ...sizes.map((s) => (typeof deliveredSizes[s] === 'number' ? deliveredSizes[s] : 0)),
-        deliveredTotal,
-      ]);
+      // 2. Các dòng đợt xuất
+      poDeliveries.forEach((del, dIdx) => {
+        dataRows.push([
+          '',
+          '',
+          '',
+          '',
+          `2.${dIdx + 1}. Xuất đợt ${dIdx + 1}`,
+          del.deliveryDate,
+          del.deliveryVoucher,
+          ...sizes.map((s) => del.sizeQuantities[s] || 0),
+          del.totalQty,
+          'Đã xuất giao KH',
+        ]);
+      });
 
+      // Dòng tổng đã xuất nếu có từ 2 đợt trở lên
+      if (poDeliveries.length >= 2) {
+        dataRows.push([
+          '',
+          '',
+          '',
+          '',
+          'Tổng cộng các đợt đã xuất',
+          '-',
+          `${poDeliveries.length} đợt`,
+          ...sizes.map((s) => totalDeliveredForSize[s] || 0),
+          grandTotalDelivered,
+          '-',
+        ]);
+      }
+
+      // 3. Dòng Tồn kho hiện tại
       dataRows.push([
         '',
         '',
         '',
         '',
         '3. TỒN KHO THÀNH PHẨM HIỆN TẠI',
-        ...sizes.map((s) => {
-          const inQ = item.inboundSizes[s] || 0;
-          const outQ = typeof deliveredSizes[s] === 'number' ? Number(deliveredSizes[s]) : 0;
-          return inQ - outQ;
-        }),
-        stockTotal,
+        '-',
+        '-',
+        ...sizes.map((s) => (item.inboundSizes[s] || 0) - (totalDeliveredForSize[s] || 0)),
+        grandTotalStock,
+        grandTotalStock > 0 ? 'Khả dụng' : grandTotalStock === 0 ? 'Hết tồn' : 'Xuất vượt',
       ]);
     });
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'TonKhoThanhPham');
-    XLSX.writeFile(wb, `TonKhoThanhPham_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+    XLSX.writeFile(wb, `Tab8_TonKho_XuatThanhPham_${currentCustomer?.name || 'KhachHang'}.xlsx`);
   };
 
   // Dữ liệu in cho phiếu xuất được chọn
@@ -354,25 +539,25 @@ export const Tab8FinishedGoods: React.FC = () => {
         voucherCode: selectedForPrint.deliveryVoucher,
         poNumber: selectedForPrint.poNumber,
         code: selectedForPrint.itemCode,
-        description: `Xuất giao thành phẩm cho ${selectedForPrint.receiver}`,
+        description: `Hóa đơn / Phiếu xuất giao thành phẩm cho ${selectedForPrint.receiver} (${selectedForPrint.note || 'Theo đơn đặt hàng'})`,
         unit: selectedForPrint.unit,
         sizeQuantities: selectedForPrint.sizeQuantities,
         totalQty: selectedForPrint.totalQty,
-        note: selectedForPrint.note || 'Xuất giao hàng thành phẩm đạt tiêu chuẩn',
+        note: selectedForPrint.note || 'Hàng đạt chuẩn chất lượng xuất xưởng',
       },
     ];
   }, [selectedForPrint]);
 
-  // Dữ liệu in báo cáo tồn kho thành phẩm
+  // Dữ liệu in báo cáo tồn kho thành phẩm tổng hợp
   const printStockRows: PrintTableRow[] = useMemo(() => {
     return filteredStock.map((item, idx) => {
-      const deliveredSizes = getItemDeliveredSizes(item);
+      const poDeliveries = getPoDeliveries(item);
       const stockSizes: Record<string, number> = {};
       let totalStock = 0;
 
       sizes.forEach((s) => {
         const inQ = item.inboundSizes[s] || 0;
-        const outQ = typeof deliveredSizes[s] === 'number' ? Number(deliveredSizes[s]) : 0;
+        const outQ = poDeliveries.reduce((sum, d) => sum + (d.sizeQuantities[s] || 0), 0);
         const st = inQ - outQ;
         stockSizes[s] = st;
         totalStock += st;
@@ -391,7 +576,7 @@ export const Tab8FinishedGoods: React.FC = () => {
         note: totalStock > 0 ? 'Còn hàng trong kho' : 'Đã xuất hết',
       };
     });
-  }, [filteredStock, defaultDate, sizes, deliveredInputs]);
+  }, [filteredStock, defaultDate, sizes, currentCustomerFinishedGoodsDeliveries]);
 
   return (
     <div className="space-y-4">
@@ -405,7 +590,7 @@ export const Tab8FinishedGoods: React.FC = () => {
               <span>TAB 8: KHO &amp; XUẤT THÀNH PHẨM (FINISHED GOODS)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
-              | Nhập trực tiếp số lượng xuất tại dòng 2, nhấn Enter để lưu &amp; khóa dòng • Bấm Sửa để mở khóa trực tiếp tại ô
+              | Hỗ trợ xuất hóa đơn nhiều đợt, nhiều ngày • Nhập số lượng và Enter lưu khóa dòng tại chỗ
             </span>
           </div>
 
@@ -443,230 +628,458 @@ export const Tab8FinishedGoods: React.FC = () => {
           </div>
         </div>
 
-        {/* BẢNG TỒN KHO THÀNH PHẨM HIỆN CÓ (Nhập trực tiếp số xuất trên dòng 2, Enter để lưu) */}
-        <div className="overflow-x-auto max-h-[620px] overflow-y-auto">
+        {/* BẢNG TỒN KHO & ĐA ĐỢT XUẤT THÀNH PHẨM (PHƯƠNG ÁN 1) */}
+        <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
               <tr>
                 <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
-                <th className="p-2 border-r border-slate-300 min-w-[110px]">Mã PO</th>
+                <th className="p-2 border-r border-slate-300 min-w-[105px]">Mã PO</th>
                 <th className="p-2 border-r border-slate-300 min-w-[120px]">Mã Hàng (Style)</th>
-                <th className="p-2 border-r border-slate-300 min-w-[50px] text-center">ĐVT</th>
-                <th className="p-2 border-r border-slate-300 min-w-[170px]">Chỉ Số Thành Phẩm</th>
+                <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
+                <th className="p-2 border-r border-slate-300 min-w-[175px]">Chỉ Số Thành Phẩm</th>
+                <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Ngày Xuất</th>
+                <th className="p-2 border-r border-slate-300 min-w-[130px]">Số HĐ / Phiếu Xuất</th>
 
                 {sizes.map((s) => (
                   <th
                     key={s}
-                    className="p-2 border-r border-slate-300 min-w-[50px] text-center font-mono font-bold bg-emerald-50 text-emerald-950"
+                    className="p-2 border-r border-slate-300 min-w-[48px] text-center font-mono font-bold bg-slate-100 text-slate-800"
                   >
                     Size {s}
                   </th>
                 ))}
 
-                <th className="p-2 border-r border-slate-300 min-w-[90px] text-right bg-emerald-100 text-emerald-950 font-bold">
-                  TỔNG CỘNG
+                <th className="p-2 border-r border-slate-300 min-w-[80px] text-right bg-emerald-100 text-emerald-950 font-bold">
+                  TỔNG SL
                 </th>
-                <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Trạng Thái</th>
+                <th className="p-2 border-r border-slate-300 min-w-[100px] text-center">Trạng Thái</th>
                 <th className="p-2 text-center w-28">Thao Tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-sans">
               {filteredStock.length === 0 ? (
                 <tr>
-                  <td colSpan={5 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
+                  <td colSpan={7 + sizes.length + 3} className="p-8 text-center text-slate-400 text-xs italic">
                     Chưa có dữ liệu thành phẩm nào được ghi nhận hoàn thành từ Tab 7 (Báo Cáo Sản Xuất Xong).
                   </td>
                 </tr>
               ) : (
                 filteredStock.map((item, idx) => {
-                  const isEditing = isRowEditing(item);
-                  const currentDeliveredSizes = getItemDeliveredSizes(item);
+                  const poDeliveries = getPoDeliveries(item);
+                  const draftDelivery = getDraftForPo(item);
+                  const hasMultipleDeliveries = poDeliveries.length >= 2;
 
-                  const liveTotalDelivered = sizes.reduce((sum, s) => {
-                    const v = currentDeliveredSizes[s];
-                    return sum + (typeof v === 'number' ? v : 0);
-                  }, 0);
+                  // Tính tổng đã xuất theo từng size của PO này (cộng các đợt đã lưu)
+                  const totalDeliveredForSize: Record<string, number> = {};
+                  sizes.forEach((s) => {
+                    totalDeliveredForSize[s] = poDeliveries.reduce((sum, d) => sum + (d.sizeQuantities[s] || 0), 0);
+                  });
+                  const grandTotalDelivered = Object.values(totalDeliveredForSize).reduce((a, b) => a + b, 0);
 
-                  const liveTotalStock = item.totalInbound - liveTotalDelivered;
+                  // Tồn kho thực tế = Nhập kho - Tổng đã xuất
+                  const grandTotalStock = item.totalInbound - grandTotalDelivered;
+
+                  // Tính tổng số dòng hiển thị của PO này để đặt rowSpan cho các cột cố định
+                  const totalPoRows =
+                    1 + // Dòng 1: Nhập kho
+                    poDeliveries.length + // Các dòng đợt xuất đã lưu
+                    (draftDelivery ? 1 : 0) + // Dòng đợt xuất mới đang soạn (nếu có)
+                    (hasMultipleDeliveries ? 1 : 0) + // Dòng tổng cộng đợt xuất (nếu >= 2 đợt)
+                    1; // Dòng 3: Tồn kho hiện tại
+
                   const rowStt = idx + 1;
 
                   return (
                     <React.Fragment key={item.key}>
-                      {/* Dòng 1: Nhập kho TP từ các Chuyền (Đọc tự động từ Tab 7) */}
-                      <tr className="bg-slate-50/70 hover:bg-slate-100/80 transition-colors">
+                      {/* DÒNG 1: NHẬP KHO TP (Tự động từ Tab 7) */}
+                      <tr className="bg-slate-50/70 hover:bg-slate-100/80 transition-colors border-t-2 border-slate-300">
+                        {/* Cột STT */}
                         <td
-                          rowSpan={3}
+                          rowSpan={totalPoRows}
                           className="p-2 border-r border-slate-300 text-center text-slate-500 font-mono font-bold bg-white text-xs align-middle"
                         >
                           {rowStt}
                         </td>
+                        {/* Cột Mã PO */}
                         <td
-                          rowSpan={3}
+                          rowSpan={totalPoRows}
                           className="p-2 border-r border-slate-300 font-mono font-bold text-sky-700 bg-white align-middle whitespace-nowrap"
                         >
                           {item.poNumber}
                         </td>
+                        {/* Cột Mã Hàng */}
                         <td
-                          rowSpan={3}
+                          rowSpan={totalPoRows}
                           className="p-2 border-r border-slate-300 font-mono font-bold text-slate-900 bg-white align-middle"
                         >
                           {item.itemCode}
                         </td>
+                        {/* Cột ĐVT */}
                         <td
-                          rowSpan={3}
+                          rowSpan={totalPoRows}
                           className="p-2 border-r border-slate-300 text-center text-slate-600 bg-white align-middle"
                         >
                           {item.unit}
                         </td>
-                        <td className="p-2 border-r border-slate-200 font-medium text-slate-700 flex items-center gap-1.5">
+
+                        {/* Chỉ số: 1. Nhập kho TP */}
+                        <td className="p-2 border-r border-slate-200 font-medium text-slate-700 flex items-center gap-1.5 whitespace-nowrap">
                           <span className="w-2 h-2 rounded-full bg-sky-500"></span>
                           <span>1. Nhập kho TP (từ Chuyền 1,2,3)</span>
                         </td>
 
+                        {/* Ngày xuất */}
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400">
+                          -
+                        </td>
+
+                        {/* Số HĐ / Phiếu */}
+                        <td className="p-2 border-r border-slate-200 font-mono text-[11px] text-slate-500 italic">
+                          Nhập từ Tab 7
+                        </td>
+
+                        {/* Size columns */}
                         {sizes.map((s) => (
                           <td key={s} className="p-2 border-r border-slate-200 text-center font-mono text-slate-700">
                             {item.inboundSizes[s] > 0 ? item.inboundSizes[s].toLocaleString('vi-VN') : '-'}
                           </td>
                         ))}
 
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-sky-700">
+                        {/* Tổng nhập */}
+                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-sky-700 bg-sky-50/50">
                           {item.totalInbound.toLocaleString('vi-VN')}
                         </td>
+
+                        {/* Trạng thái */}
                         <td className="p-2 border-r border-slate-200 text-center text-[10px] font-semibold text-slate-500">
-                          Từ Tab 7
+                          Sản xuất xong
                         </td>
-                        <td
-                          rowSpan={3}
-                          className="p-2 text-center align-middle bg-white border-l border-slate-300 whitespace-nowrap"
-                        >
-                          <div className="flex flex-col items-center justify-center gap-1">
-                            {isEditing ? (
-                              <button
-                                type="button"
-                                onClick={() => handleSaveOutbound(item)}
-                                className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded shadow-2xs transition cursor-pointer"
-                                title="Lưu số lượng xuất và khóa dòng (Enter)"
-                              >
-                                <Save className="w-3 h-3" />
-                                <span>Lưu Xuất</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleStartEdit(item.key)}
-                                className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-300 text-[11px] font-bold rounded shadow-2xs transition cursor-pointer"
-                                title="Mở khóa dòng này để sửa trực tiếp trên ô"
-                              >
-                                <Edit className="w-3 h-3" />
-                                <span>Sửa Số Xuất</span>
-                              </button>
-                            )}
 
-                            <div className="flex items-center justify-center gap-1 w-full pt-0.5">
-                              {/* Nút In Phiếu */}
-                              <button
-                                type="button"
-                                onClick={() => handlePrintDelivery(item)}
-                                disabled={liveTotalDelivered <= 0}
-                                className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30 rounded hover:bg-indigo-50 transition cursor-pointer"
-                                title="In phiếu xuất kho thành phẩm"
-                              >
-                                <Printer className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Nút Xóa / Hủy số lượng đã xuất */}
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteOutbound(item)}
-                                disabled={liveTotalDelivered <= 0}
-                                className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 rounded hover:bg-rose-50 transition cursor-pointer"
-                                title="Xóa/hủy xuất để hoàn trả lại tồn kho thành phẩm"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
+                        {/* Thao tác dòng 1: Giữ trống hoặc thêm nút nếu cần */}
+                        <td className="p-2 text-center text-slate-400">
+                          -
                         </td>
                       </tr>
 
-                      {/* Dòng 2: ĐÃ XUẤT GIAO KHÁCH HÀNG (Sửa trực tiếp tại ô, Enter lưu khóa dòng) */}
-                      <tr className="bg-[#fffbeb] hover:bg-[#fef3c7] transition-colors border-y border-amber-200">
-                        <td className="p-2 border-r border-slate-200 font-bold text-amber-900 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                          <span>2. Đã xuất giao Khách hàng</span>
-                        </td>
+                      {/* NHÓM DÒNG 2: CÁC ĐỢT XUẤT ĐÃ LƯU (Đa đợt, đa ngày) */}
+                      {poDeliveries.map((del, dIdx) => {
+                        const isEditingThisDel = Boolean(editingDeliveries[del.id]);
+                        const activeDel = editingDeliveries[del.id] || del;
 
-                        {sizes.map((s) => {
-                          const val = currentDeliveredSizes[s];
-                          const inbound = item.inboundSizes[s] || 0;
-                          const isOver = typeof val === 'number' && val > inbound;
+                        return (
+                          <tr
+                            key={del.id}
+                            className={`transition-colors ${
+                              isEditingThisDel ? 'bg-[#fefce8]' : 'bg-[#fffbeb] hover:bg-[#fef3c7]'
+                            } border-y border-amber-200/80`}
+                          >
+                            {/* Chỉ số */}
+                            <td className="p-2 border-r border-slate-200 font-bold text-amber-900 flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                              <span>2.{dIdx + 1}. Xuất đợt {dIdx + 1}</span>
+                            </td>
 
-                          return (
-                            <td
-                              key={s}
-                              className={`p-0 border-r border-slate-200 ${
-                                isOver ? 'bg-rose-100 ring-1 ring-rose-400' : ''
-                              }`}
-                            >
-                              {isEditing ? (
+                            {/* Ngày xuất */}
+                            <td className="p-0 border-r border-slate-200 text-center font-mono">
+                              {isEditingThisDel ? (
                                 <input
-                                  type="number"
-                                  min="0"
-                                  max={inbound}
-                                  value={val ?? ''}
-                                  onChange={(e) => handleUpdateItemSize(item.key, s, e.target.value, item)}
+                                  type="text"
+                                  value={activeDel.deliveryDate}
+                                  onChange={(e) => handleUpdateEditingField(del.id, 'deliveryDate', e.target.value)}
                                   onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      handleSaveOutbound(item);
-                                    }
+                                    if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
                                   }}
-                                  onPaste={(e) => handleSizePaste(e, item.key, s, item)}
-                                  placeholder="-"
-                                  className={`w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white focus:outline-none focus:ring-1 ${
-                                    isOver
-                                      ? 'text-rose-700 focus:ring-rose-500 border border-rose-400'
-                                      : 'text-amber-900 focus:ring-amber-500 border border-amber-200 hover:border-amber-400'
-                                  }`}
-                                  title={`Nhập số lượng xuất Size ${s} (Tồn nhập: ${inbound}). Nhấn Enter để lưu.`}
+                                  placeholder="DD/MM/YYYY"
+                                  className="w-full h-8 px-1 text-center font-mono text-xs bg-white border-0 focus:ring-1 focus:ring-amber-500"
                                 />
                               ) : (
-                                <div
-                                  className={`p-2 font-mono font-bold text-center ${
-                                    typeof val === 'number' && val > 0 ? 'text-amber-800 bg-amber-50/60' : 'text-slate-300'
-                                  }`}
-                                >
-                                  {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
+                                <div className="p-2 text-slate-700 whitespace-nowrap">{del.deliveryDate}</div>
+                              )}
+                            </td>
+
+                            {/* Số Hóa Đơn / Phiếu */}
+                            <td className="p-0 border-r border-slate-200">
+                              {isEditingThisDel ? (
+                                <input
+                                  type="text"
+                                  value={activeDel.deliveryVoucher}
+                                  onChange={(e) => handleUpdateEditingField(del.id, 'deliveryVoucher', e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
+                                  }}
+                                  placeholder="HĐ-..."
+                                  className="w-full h-8 px-2 font-mono font-bold text-xs uppercase bg-white border-0 focus:ring-1 focus:ring-amber-500 text-amber-900"
+                                />
+                              ) : (
+                                <div className="p-2 font-mono font-bold text-amber-900 truncate max-w-[130px]" title={del.deliveryVoucher}>
+                                  {del.deliveryVoucher}
                                 </div>
                               )}
                             </td>
-                          );
-                        })}
 
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-amber-900 bg-amber-100">
-                          {liveTotalDelivered > 0 ? liveTotalDelivered.toLocaleString('vi-VN') : '-'}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-center text-[10px] font-bold text-amber-800">
-                          {isEditing ? (
-                            <span className="text-sky-700 font-semibold">Đang sửa ô...</span>
-                          ) : liveTotalDelivered > 0 ? (
-                            'Đã khóa xuất'
-                          ) : (
-                            'Chưa xuất'
-                          )}
-                        </td>
-                      </tr>
+                            {/* Size columns */}
+                            {sizes.map((s) => {
+                              const val = activeDel.sizeQuantities[s] || 0;
+                              return (
+                                <td key={s} className="p-0 border-r border-slate-200 text-center">
+                                  {isEditingThisDel ? (
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={val > 0 ? val : ''}
+                                      onChange={(e) => handleUpdateEditingSize(del.id, s, e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleSaveEditDelivery(del.id, item);
+                                      }}
+                                      onPaste={(e) => handleSizePaste(e, false, del.id, s)}
+                                      placeholder="-"
+                                      className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-amber-950 border border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`p-2 font-mono font-bold text-center ${
+                                        val > 0 ? 'text-amber-900 bg-amber-100/50' : 'text-slate-300'
+                                      }`}
+                                    >
+                                      {val > 0 ? val.toLocaleString('vi-VN') : '-'}
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
 
-                      {/* Dòng 3: TỒN KHO THÀNH PHẨM HIỆN TẠI (Tự động tính = Nhập kho - Đã xuất) */}
-                      <tr className="bg-emerald-50/60 font-bold border-b-2 border-slate-300">
-                        <td className="p-2 border-r border-slate-200 text-emerald-950 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                          <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                            {/* Tổng SL đợt này */}
+                            <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-amber-950 bg-amber-100/70">
+                              {activeDel.totalQty.toLocaleString('vi-VN')}
+                            </td>
+
+                            {/* Trạng thái */}
+                            <td className="p-2 border-r border-slate-200 text-center">
+                              {isEditingThisDel ? (
+                                <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded border border-sky-300">
+                                  Đang sửa...
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                                  Đã khóa
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Nút Thao tác cho đợt xuất này */}
+                            <td className="p-1.5 text-center whitespace-nowrap">
+                              {isEditingThisDel ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveEditDelivery(del.id, item)}
+                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-0.5"
+                                    title="Lưu đợt xuất này và khóa dòng (Enter)"
+                                  >
+                                    <Save className="w-3 h-3" />
+                                    <span>Lưu</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelEditDelivery(del.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                                    title="Hủy bỏ thay đổi"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-center gap-1">
+                                  {/* Sửa đợt này */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartEditDelivery(del)}
+                                    className="p-1 text-slate-500 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                                    title={`Mở khóa sửa trực tiếp đợt ${del.deliveryVoucher}`}
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* In phiếu cho đợt này */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePrintDelivery(del)}
+                                    className="p-1 text-slate-500 hover:text-indigo-600 rounded hover:bg-indigo-50 transition cursor-pointer"
+                                    title={`In phiếu xuất kho / hóa đơn đợt ${del.deliveryVoucher}`}
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Xóa đợt này */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteDelivery(del)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                                    title={`Xóa đợt ${del.deliveryVoucher} (Hoàn lại tồn kho)`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* DÒNG SOẠN ĐỢT XUẤT MỚI (DRAFT DELIVERY, NẾU CÓ) */}
+                      {draftDelivery && (
+                        <tr className="bg-[#f0fdf4] hover:bg-[#dcfce7]/70 transition-colors border-y-2 border-emerald-400">
+                          {/* Phân loại đợt mới */}
+                          <td className="p-2 border-r border-slate-200 font-bold text-emerald-800 flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>2.{poDeliveries.length + 1}. Xuất đợt mới</span>
+                          </td>
+
+                          {/* Ngày xuất */}
+                          <td className="p-0 border-r border-slate-200 text-center font-mono">
+                            <input
+                              type="text"
+                              value={draftDelivery.deliveryDate}
+                              onChange={(e) => handleUpdateDraftField(item.key, 'deliveryDate', e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveDraftDelivery(item);
+                              }}
+                              placeholder="DD/MM/YYYY"
+                              className="w-full h-8 px-1 text-center font-mono text-xs bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+
+                          {/* Số HĐ / Phiếu */}
+                          <td className="p-0 border-r border-slate-200">
+                            <input
+                              type="text"
+                              value={draftDelivery.deliveryVoucher}
+                              onChange={(e) => handleUpdateDraftField(item.key, 'deliveryVoucher', e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveDraftDelivery(item);
+                              }}
+                              placeholder="Số HĐ / Phiếu..."
+                              className="w-full h-8 px-2 font-mono font-bold text-xs uppercase bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 text-emerald-950"
+                            />
+                          </td>
+
+                          {/* Size columns */}
+                          {sizes.map((s) => {
+                            const val = draftDelivery.sizeQuantities[s] || 0;
+                            return (
+                              <td key={s} className="p-0 border-r border-slate-200 text-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={val > 0 ? val : ''}
+                                  onChange={(e) => handleUpdateDraftSize(item.key, s, e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveDraftDelivery(item);
+                                  }}
+                                  onPaste={(e) => handleSizePaste(e, true, item.key, s)}
+                                  placeholder="-"
+                                  className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-emerald-950 border border-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </td>
+                            );
+                          })}
+
+                          {/* Tổng xuất đợt mới */}
+                          <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-emerald-950 bg-emerald-100">
+                            {draftDelivery.totalQty.toLocaleString('vi-VN')}
+                          </td>
+
+                          {/* Trạng thái */}
+                          <td className="p-2 border-r border-slate-200 text-center">
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
+                              Đang soạn...
+                            </span>
+                          </td>
+
+                          {/* Thao tác lưu đợt mới */}
+                          <td className="p-1.5 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveDraftDelivery(item)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-0.5"
+                                title="Lưu đợt xuất này và khóa dòng (Enter)"
+                              >
+                                <Save className="w-3 h-3" />
+                                <span>Lưu</span>
+                              </button>
+                              {poDeliveries.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelDraft(item.key)}
+                                  className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                                  title="Đóng dòng soạn đợt mới"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* DÒNG TỔNG CỘNG CÁC ĐỢT ĐÃ XUẤT (HIỂN THỊ NẾU CÓ >= 2 ĐỢT) */}
+                      {hasMultipleDeliveries && (
+                        <tr className="bg-amber-100/50 font-bold border-y border-amber-300/80 text-amber-950">
+                          <td className="p-2 border-r border-slate-200 text-amber-900 flex items-center gap-1.5 text-[11px] tracking-wide uppercase">
+                            <span>🔹 Tổng cộng đã xuất</span>
+                          </td>
+                          <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-500">
+                            -
+                          </td>
+                          <td className="p-2 border-r border-slate-200 font-mono text-[11px] text-amber-900">
+                            {poDeliveries.length} đợt đã xuất
+                          </td>
+
+                          {sizes.map((s) => (
+                            <td key={s} className="p-2 border-r border-slate-200 text-center font-mono text-amber-950">
+                              {totalDeliveredForSize[s] > 0 ? totalDeliveredForSize[s].toLocaleString('vi-VN') : '-'}
+                            </td>
+                          ))}
+
+                          <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-amber-950 bg-amber-200/70">
+                            {grandTotalDelivered.toLocaleString('vi-VN')}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 text-center text-[10px] text-amber-800">
+                            Đã giao
+                          </td>
+                          <td className="p-2 text-center text-slate-400">
+                            -
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* DÒNG 3: TỒN KHO THÀNH PHẨM HIỆN TẠI (Tự động trừ lùi = Nhập kho - Tổng tất cả các đợt xuất) */}
+                      <tr className="bg-[#f8fafc] font-bold border-b-2 border-slate-300">
+                        <td className="p-2 border-r border-slate-200 text-slate-900 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              grandTotalStock > 0
+                                ? 'bg-emerald-600'
+                                : grandTotalStock === 0
+                                ? 'bg-slate-400'
+                                : 'bg-rose-600'
+                            }`}
+                          ></span>
                           <span>3. TỒN KHO TP HIỆN TẠI</span>
+                        </td>
+
+                        <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-400">
+                          -
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono text-slate-400">
+                          -
                         </td>
 
                         {sizes.map((s) => {
                           const inQ = item.inboundSizes[s] || 0;
-                          const outQ = typeof currentDeliveredSizes[s] === 'number' ? Number(currentDeliveredSizes[s]) : 0;
+                          const outQ = totalDeliveredForSize[s] || 0;
                           const st = inQ - outQ;
 
                           return (
@@ -685,15 +1098,26 @@ export const Tab8FinishedGoods: React.FC = () => {
                           );
                         })}
 
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs text-emerald-950 bg-emerald-100">
-                          {liveTotalStock.toLocaleString('vi-VN')}
+                        {/* Tổng tồn kho */}
+                        <td
+                          className={`p-2 border-r border-slate-200 text-right font-mono font-bold text-xs ${
+                            grandTotalStock > 0
+                              ? 'text-emerald-950 bg-emerald-100'
+                              : grandTotalStock === 0
+                              ? 'text-slate-700 bg-slate-100'
+                              : 'text-rose-950 bg-rose-100'
+                          }`}
+                        >
+                          {grandTotalStock.toLocaleString('vi-VN')}
                         </td>
+
+                        {/* Trạng thái tồn */}
                         <td className="p-2 border-r border-slate-200 text-center">
-                          {liveTotalStock > 0 ? (
+                          {grandTotalStock > 0 ? (
                             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                               Khả dụng
                             </span>
-                          ) : liveTotalStock < 0 ? (
+                          ) : grandTotalStock < 0 ? (
                             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
                               Xuất vượt
                             </span>
@@ -703,10 +1127,55 @@ export const Tab8FinishedGoods: React.FC = () => {
                             </span>
                           )}
                         </td>
+
+                        {/* Thao tác dòng tồn: Nút "+ Thêm Đợt Xuất" */}
+                        <td className="p-1.5 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddDelivery(item)}
+                            className="inline-flex items-center justify-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[11px] font-bold shadow-2xs transition cursor-pointer w-full"
+                            title="Thêm một đợt xuất / hóa đơn mới cho PO này"
+                          >
+                            <Plus className="w-3 h-3 text-amber-700" />
+                            <span>+ Đợt Xuất</span>
+                          </button>
+                        </td>
                       </tr>
                     </React.Fragment>
                   );
                 })
+              )}
+
+              {/* DÒNG TỔNG CỘNG TOÀN BẢNG TAB 8 */}
+              {filteredStock.length > 0 && (
+                <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
+                  <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                    TỔNG CỘNG TỒN KHO THÀNH PHẨM TOÀN BỘ:
+                  </td>
+                  {sizes.map((s) => {
+                    const sStock = filteredStock.reduce((sum, item) => {
+                      const inQ = item.inboundSizes[s] || 0;
+                      const outQ = getPoDeliveries(item).reduce((dSum, d) => dSum + (d.sizeQuantities[s] || 0), 0);
+                      return sum + (inQ - outQ);
+                    }, 0);
+                    return (
+                      <td key={s} className="p-2 border-r border-slate-300 text-center font-mono font-bold text-xs text-emerald-950">
+                        {sStock}
+                      </td>
+                    );
+                  })}
+                  <td className="p-2 border-r border-slate-300 text-right font-mono font-bold text-xs text-emerald-950 bg-emerald-200">
+                    {filteredStock
+                      .reduce((sum, item) => {
+                        const totalOut = getPoDeliveries(item).reduce((dSum, d) => dSum + d.totalQty, 0);
+                        return sum + (item.totalInbound - totalOut);
+                      }, 0)
+                      .toLocaleString('vi-VN')}
+                  </td>
+                  <td colSpan={2} className="p-2 text-slate-600 text-[11px] italic">
+                    Tổng {filteredStock.length} PO thành phẩm
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -717,29 +1186,29 @@ export const Tab8FinishedGoods: React.FC = () => {
           <div className="text-[11px] flex items-center gap-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span>
-              💡 <strong>Quy tắc thao tác:</strong> Nhập số lượng xuất trực tiếp vào <strong>Dòng 2 (Đã xuất giao Khách hàng)</strong> rồi nhấn <strong>Enter</strong> để lưu và khóa dòng lại. Khi cần sửa, bấm nút <strong>Sửa Số Xuất ✏️</strong> để mở khóa sửa trực tiếp trên ô, không mở form mới!
+              💡 <strong>Quy tắc thao tác:</strong> Mỗi PO có thể xuất làm nhiều đợt. Nhập ngày xuất, số HĐ và số lượng rồi nhấn <strong>Enter</strong> để lưu &amp; khóa dòng tại chỗ. Bấm <strong>+ Đợt Xuất</strong> để thêm đợt mới; bấm <strong>Sửa ✏️</strong> để mở khóa sửa hoặc <strong>In 🖨️</strong> để in riêng phiếu xuất/hóa đơn cho từng đợt!
             </span>
           </div>
           <div className="text-[11px] text-slate-600">
-            Tổng cộng: <strong>{filteredStock.length}</strong> đơn hàng thành phẩm
+            Tổng cộng: <strong>{filteredStock.length}</strong> PO thành phẩm
           </div>
         </div>
       </div>
 
-      {/* MODAL IN PHIẾU XUẤT KHO THÀNH PHẨM (DELIVERY NOTE) */}
+      {/* MODAL IN PHIẾU XUẤT KHO / HÓA ĐƠN THÀNH PHẨM (TỪNG ĐỢT) */}
       <PrintHtmlModal
         isOpen={Boolean(selectedForPrint)}
         onClose={() => setSelectedForPrint(null)}
-        documentTitle="PHIẾU XUẤT KHO THÀNH PHẨM GIAO KHÁCH HÀNG"
-        documentNumber={selectedForPrint?.deliveryVoucher}
-        dateStr={selectedForPrint?.deliveryDate}
+        documentTitle={`HÓA ĐƠN / PHIẾU XUẤT THÀNH PHẨM - ${selectedForPrint?.deliveryVoucher || ''}`}
+        documentNumber={selectedForPrint?.deliveryVoucher || 'XKTP-01'}
+        dateStr={selectedForPrint?.deliveryDate || defaultDate}
         customerName={selectedForPrint?.receiver || currentCustomer?.name || 'Khách hàng'}
         poNumber={selectedForPrint?.poNumber}
         sizes={sizes}
         rows={printDeliveryRows}
       />
 
-      {/* MODAL IN BÁO CÁO TỒN KHO THÀNH PHẨM */}
+      {/* MODAL IN BÁO CÁO TỒN KHO THÀNH PHẨM TỔNG HỢP */}
       <PrintHtmlModal
         isOpen={showStockPrintModal}
         onClose={() => setShowStockPrintModal(false)}
