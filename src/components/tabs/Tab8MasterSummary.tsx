@@ -203,16 +203,24 @@ export const Tab8MasterSummary: React.FC = () => {
         neededTotal = Math.max(0, orderTotal - issuedTotal);
       }
 
-      // 4. Số còn tồn chưa xuất (Tồn kho khả dụng hiện có)
+      // 4. Số còn tồn chưa xuất: Đọc trực tiếp từ dòng TỒN KHO TP HIỆN TẠI trong Tab 8 theo mỗi PO
       const stockSizes: Record<string, number> = {};
       let stockTotal = 0;
       sizes.forEach((s) => {
-        const val = stockItem?.currentStockSizes?.[s] || 0;
-        stockSizes[s] = val;
-        stockTotal += val;
+        let st = 0;
+        if (fgStockItem) {
+          const inQ = Number(fgStockItem.inboundSizes?.[s]) || 0;
+          const outQ = typeof issuedSizes[s] === 'number' ? issuedSizes[s] : (Number(fgStockItem.deliveredSizes?.[s]) || 0);
+          st = inQ - outQ;
+        }
+        stockSizes[s] = st;
+        stockTotal += st;
       });
-      if (stockTotal === 0 && stockItem && stockItem.totalCurrentStock > 0) {
-        stockTotal = stockItem.totalCurrentStock;
+
+      if (fgStockItem && typeof fgStockItem.totalInbound === 'number') {
+        stockTotal = fgStockItem.totalInbound - issuedTotal;
+      } else if (fgStockItem && typeof fgStockItem.totalStock === 'number') {
+        stockTotal = fgStockItem.totalStock;
       }
 
       return {
@@ -552,7 +560,7 @@ export const Tab8MasterSummary: React.FC = () => {
             <p className="text-lg font-mono font-bold text-emerald-900 mt-1">
               {kpiTotals.totalStock.toLocaleString('vi-VN')}
             </p>
-            <span className="text-[10px] text-emerald-700">Tồn kho sẵn sàng cấp</span>
+            <span className="text-[10px] text-emerald-700">Tồn kho TP hiện tại (Tab 8)</span>
           </div>
         </div>
 
