@@ -55,7 +55,7 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
   const [isTestingUrl, setIsTestingUrl] = useState(false);
   const [testResult, setTestResult] = useState<'SUCCESS' | 'FAILED' | null>(null);
 
-  const [showScriptHelp, setShowScriptHelp] = useState(false);
+  const [showScriptHelp, setShowScriptHelp] = useState(!googleSheetsWebhookUrl);
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
 
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -222,7 +222,12 @@ function doPost(e) {
   const backupSingleCompany = async (targetCustomer: typeof customers[0]): Promise<boolean> => {
     const activeUrl = inputUrl.trim() || googleSheetsWebhookUrl.trim();
     if (!activeUrl) {
-      alert('Vui lòng cấu hình và lưu Webhook URL trước khi sao lưu!', 'Chưa có Webhook', 'warning');
+      setShowScriptHelp(true);
+      alert(
+        'Vui lòng tạo và dán Webhook URL của Google Drive vào ô bên trên trước khi sao lưu!\n(Hệ thống đã tự động mở hướng dẫn 4 bước bên dưới cho bạn)',
+        'Chưa có Webhook',
+        'warning'
+      );
       return false;
     }
 
