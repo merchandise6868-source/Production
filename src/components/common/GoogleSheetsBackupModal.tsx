@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import {
   X,
@@ -42,7 +42,7 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
     productionIssues,
     productionReports,
     finishedGoodsDeliveries,
-    finishedGoodsStock,
+    currentCustomerFinishedGoodsStock,
     currentCustomerDiscrepancies,
     currentCustomerCompensationItems,
     currentCustomerRealtimeStock,
@@ -245,7 +245,7 @@ function doPost(e) {
     const cIssues = productionIssues.filter((i) => i.customerId === cId);
     const cReports = productionReports.filter((r) => r.customerId === cId);
     const cDeliveries = finishedGoodsDeliveries.filter((d) => d.customerId === cId);
-    const cFgStock = finishedGoodsStock.filter((fg) => fg.customerId === cId);
+    const cFgStock = cId === selectedCustomerId ? currentCustomerFinishedGoodsStock : [];
 
     // Tab 3, 4, 6
     const cDiscs = cId === selectedCustomerId ? currentCustomerDiscrepancies : [];

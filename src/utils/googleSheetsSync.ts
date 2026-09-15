@@ -178,9 +178,9 @@ export function buildCompanySheetsPayload(
   // 8. Sheet 08: Tab 7 - Nghiệm Thu & Phân Loại Hỏng
   const tab7Headers = ['STT', 'Ngày Báo Cáo', 'Mã PO', 'Code Vật Tư', 'Tên Chi Tiết', 'Chuyền SX', 'ĐVT', ...currentSizes.map((s) => 'Đạt Size ' + s), 'Tổng Đạt Chuẩn', 'Tổng Hỏng (Kho bù)', 'Tổng Hỏng (Chờ NCC bù)'];
   const tab7Rows = productionReports.map((r, idx) => {
-    const passedTot = Object.values(r.passedSizes || {}).reduce((a, b) => a + Number(b || 0), 0);
-    const compTot = Object.values(r.compensationFromStock || {}).reduce((a, b) => a + Number(b || 0), 0);
-    const damagedTot = Object.values(r.damagedOutOfStock || {}).reduce((a, b) => a + Number(b || 0), 0);
+    const passedTot = Object.values(r.completedQuantities || {}).reduce((a: number, b) => a + Number(b || 0), 0);
+    const compTot = Object.values(r.compensationFromStock || {}).reduce((a: number, b: number) => a + Number(b || 0), 0);
+    const damagedTot = Object.values(r.compensationFromCustomer || {}).reduce((a: number, b: number) => a + Number(b || 0), 0);
     return [
       idx + 1,
       r.reportDate,
@@ -189,7 +189,7 @@ export function buildCompanySheetsPayload(
       r.detailName || '',
       r.lineId || '',
       r.unit || 'PRS',
-      ...currentSizes.map((s) => r.passedSizes?.[s] ?? 0),
+      ...currentSizes.map((s) => r.completedQuantities?.[s] ?? 0),
       passedTot,
       compTot,
       damagedTot,
