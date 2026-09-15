@@ -216,9 +216,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
 
   // Google Sheets Backup Webhook URL state
-  const [googleSheetsWebhookUrl, setGoogleSheetsWebhookUrlState] = useState<string>(() =>
-    loadStored('googleSheetsWebhookUrl', '')
-  );
+  const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzWeoJsZGy7NgtENaZIXcMq1t00C6kYwI39M9AJvzsiu8IF0ZcNXnakMznRXr-XXx9_/exec';
+  const [googleSheetsWebhookUrl, setGoogleSheetsWebhookUrlState] = useState<string>(() => {
+    const stored = loadStored('googleSheetsWebhookUrl', '');
+    return stored && stored.trim().length > 0 ? stored : DEFAULT_WEBHOOK_URL;
+  });
 
   const setGoogleSheetsWebhookUrl = (url: string) => {
     setGoogleSheetsWebhookUrlState(url);

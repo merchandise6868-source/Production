@@ -55,6 +55,12 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
   const [isTestingUrl, setIsTestingUrl] = useState(false);
   const [testResult, setTestResult] = useState<'SUCCESS' | 'FAILED' | null>(null);
 
+  useEffect(() => {
+    if (googleSheetsWebhookUrl && !inputUrl) {
+      setInputUrl(googleSheetsWebhookUrl);
+    }
+  }, [googleSheetsWebhookUrl, inputUrl]);
+
   const [showScriptHelp, setShowScriptHelp] = useState(!googleSheetsWebhookUrl);
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
 
