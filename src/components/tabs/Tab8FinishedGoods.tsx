@@ -845,7 +845,11 @@ export const Tab8FinishedGoods: React.FC = () => {
                 <label className="block text-[10px] font-bold text-slate-600 mb-0.5">MÃ PO *</label>
                 <SearchablePoSelect
                   value={globalNewBatch.poNumber}
+                  pos={currentCustomerPOs}
                   onChange={handleGlobalPoChange}
+                  onSelectPo={(po) => {
+                    handleGlobalPoChange(po.poNumber);
+                  }}
                   placeholder="Chọn PO..."
                   className="w-full text-xs font-mono font-bold uppercase text-sky-800"
                 />

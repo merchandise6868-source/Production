@@ -5,7 +5,7 @@ interface SearchablePoSelectProps {
   value: string;
   onChange: (val: string) => void;
   onSelectPo?: (po: PurchaseOrder) => void;
-  pos: PurchaseOrder[];
+  pos?: PurchaseOrder[];
   placeholder?: string;
   className?: string;
   disabled?: boolean;
@@ -18,7 +18,7 @@ export const SearchablePoSelect: React.FC<SearchablePoSelectProps> = ({
   value,
   onChange,
   onSelectPo,
-  pos,
+  pos = [],
   placeholder = 'Nhập/chọn PO...',
   className = '',
   disabled = false,
@@ -32,17 +32,18 @@ export const SearchablePoSelect: React.FC<SearchablePoSelectProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Lọc PO phù hợp khi gõ bất kỳ ký tự nào
+  const safePos = pos || [];
   const filteredPOs = useMemo(() => {
     if (!value || !value.trim()) {
-      return pos;
+      return safePos;
     }
     const q = value.trim().toLowerCase();
-    return pos.filter(
+    return safePos.filter(
       (p) =>
-        p.poNumber.toLowerCase().includes(q) ||
+        (p.poNumber && p.poNumber.toLowerCase().includes(q)) ||
         (p.style && p.style.toLowerCase().includes(q))
     );
-  }, [pos, value]);
+  }, [safePos, value]);
 
   // Đóng dropdown khi click ra ngoài
   useEffect(() => {

@@ -120,6 +120,7 @@ interface InventoryContextType {
   addProductionReport: (report: ProductionReportRow) => void;
   updateProductionReport: (report: ProductionReportRow) => void;
   deleteProductionReport: (id: string) => void;
+  deleteActualReceive: (idOrPlanOrderId: string) => void;
   resetActualReceive: (planOrderId: string) => void;
   updateCompensationRequestStatus: (id: string, status: CompensationRequestItem['status']) => void;
   updateCompensationRequestDate: (id: string, requestDate: string) => void;
@@ -697,51 +698,112 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
 
   // TAB 3: TỰ ĐỘNG TÍNH CHÊNH LỆCH = SỐ THỰC NHẬN (TAB 2) - SỐ TRÊN PHIẾU (TAB 1)
+  // GROUP BY THEO MÃ PO (PO LÀ KHÓA CHÍNH DUY NHẤT)
   const currentCustomerDiscrepancies: DiscrepancyRow[] = useMemo(() => {
-    return currentCustomerPlanOrders.map((plan) => {
-      const actual = currentCustomerActualReceives.find((a) => a.planOrderId === plan.id);
-      const actualSizes = actual?.sizeQuantities || {};
-      const planSizes = plan.sizeQuantities || {};
+    // 1. Thu thập toàn bộ danh sách PO duy nhất từ Tab 1 (Kế hoạch) và Tab 2 (Thực nhận)
+    const allPoNumbers = Array.from(
+      new Set([
+        ...currentCustomerPlanOrders.map((p) => (p.poNumber || '').trim().toUpperCase()),
+        ...currentCustomerActualReceives.map((a) => (a.poNumber || '').trim().toUpperCase()),
+      ])
+    ).filter(Boolean);
 
-      const allSizes = Array.from(new Set([...Object.keys(planSizes), ...Object.keys(actualSizes)]));
+    return allPoNumbers.map((poNum) => {
+      // Gom tất cả dòng kế hoạch Tab 1 của PO này
+      const matchingPlans = currentCustomerPlanOrders.filter(
+        (p) => (p.poNumber || '').trim().toUpperCase() === poNum
+      );
+      // Gom tất cả dòng thực nhận Tab 2 của PO này
+      const matchingPlanIds = new Set(matchingPlans.map((p) => p.id));
+      const matchingActuals = currentCustomerActualReceives.filter(
+        (a) =>
+          (a.poNumber || '').trim().toUpperCase() === poNum ||
+          (a.planOrderId && matchingPlanIds.has(a.planOrderId))
+      );
+
+      // Tổng hợp size kế hoạch
+      const planSizes: Record<string, number> = {};
+      let totalPlan = 0;
+      matchingPlans.forEach((plan) => {
+        Object.entries(plan.sizeQuantities || {}).forEach(([s, q]) => {
+          const num = Number(q) || 0;
+          planSizes[s] = (planSizes[s] || 0) + num;
+          totalPlan += num;
+        });
+      });
+      if (totalPlan === 0 && matchingPlans.length > 0) {
+        totalPlan = matchingPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
+      }
+
+      // Tổng hợp size thực nhận (cộng dồn các lần nhận, kể cả hàng bù)
+      const actualSizes: Record<string, number> = {};
+      let totalActual = 0;
+      matchingActuals.forEach((actual) => {
+        Object.entries(actual.sizeQuantities || {}).forEach(([s, q]) => {
+          const num = Number(q) || 0;
+          actualSizes[s] = (actualSizes[s] || 0) + num;
+          totalActual += num;
+        });
+      });
+      if (totalActual === 0 && matchingActuals.length > 0) {
+        totalActual = matchingActuals.reduce((sum, a) => sum + (Number(a.totalQty) || 0), 0);
+      }
+
+      // Tập hợp tất cả các size xuất hiện
+      const allSizes = Array.from(
+        new Set([...Object.keys(planSizes), ...Object.keys(actualSizes)])
+      );
+
       const diffSizes: Record<string, number> = {};
       let hasNeg = false;
-      let totalActual = 0;
 
       allSizes.forEach((s) => {
-        const pQty = Number(planSizes[s]) || 0;
-        const aQty = Number(actualSizes[s]) || 0;
+        const pQty = planSizes[s] || 0;
+        const aQty = actualSizes[s] || 0;
         const diff = aQty - pQty;
         diffSizes[s] = diff;
-        totalActual += aQty;
         if (diff < 0) {
           hasNeg = true;
         }
       });
 
-      const totalPlan = plan.totalQty;
       const totalDiff = totalActual - totalPlan;
+      if (totalDiff < 0) {
+        hasNeg = true;
+      }
+
+      const firstPlan = matchingPlans[0];
+      const firstActual = matchingActuals[0];
+
+      const voucherCodes = Array.from(
+        new Set(
+          [
+            ...matchingPlans.map((p) => p.voucherCode),
+            ...matchingActuals.map((a) => a.voucherCode),
+          ].filter(Boolean)
+        )
+      ).join(', ');
 
       return {
-        planOrderId: plan.id,
-        customerId: plan.customerId,
-        receiptDate: plan.receiptDate,
-        poNumber: plan.poNumber,
-        itemCode: plan.itemCode,
-        voucherCode: plan.voucherCode,
-        description: plan.description,
-        unit: plan.unit,
+        planOrderId: firstPlan?.id || `po-${poNum}`,
+        customerId: firstPlan?.customerId || firstActual?.customerId || selectedCustomerId || '',
+        receiptDate: firstPlan?.receiptDate || firstActual?.receiptDate || '',
+        poNumber: poNum,
+        itemCode: firstPlan?.itemCode || firstActual?.itemCode || '',
+        voucherCode: voucherCodes,
+        description: firstPlan?.description || firstActual?.description || `Vật tư PO ${poNum}`,
+        unit: firstPlan?.unit || firstActual?.unit || 'PRS',
         planSizes,
         actualSizes,
         diffSizes,
         totalPlan,
         totalActual,
         totalDiff,
-        hasNegative: hasNeg || totalDiff < 0,
-        needsCompensation: hasNeg || totalDiff < 0,
+        hasNegative: hasNeg,
+        needsCompensation: hasNeg,
       };
     });
-  }, [currentCustomerPlanOrders, currentCustomerActualReceives]);
+  }, [currentCustomerPlanOrders, currentCustomerActualReceives, selectedCustomerId]);
 
   // TAB 4: NGUỒN DỮ LIỆU CẤP BÙ (GIAO THIẾU TỪ TAB 3 + HỎNG HẾT KHO TỪ TAB 7)
   const currentCustomerCompensationItems: CompensationRequestItem[] = useMemo(() => {
@@ -888,10 +950,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     > = {};
 
     currentCustomerPlanOrders.forEach((plan) => {
-      const key = `${plan.poNumber.trim().toUpperCase()}__${plan.itemCode.trim().toUpperCase()}`;
-      if (!groups[key]) {
-        groups[key] = {
-          poNumber: plan.poNumber,
+      const poNum = plan.poNumber.trim().toUpperCase();
+      if (!poNum) return;
+      if (!groups[poNum]) {
+        groups[poNum] = {
+          poNumber: poNum,
           itemCode: plan.itemCode,
           description: plan.description,
           unit: plan.unit,
@@ -899,6 +962,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           issued: {},
           comp: {},
         };
+      } else {
+        if (!groups[poNum].itemCode && plan.itemCode) groups[poNum].itemCode = plan.itemCode;
+        if (!groups[poNum].description && plan.description) groups[poNum].description = plan.description;
       }
     });
 
@@ -908,9 +974,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const poNum = (act.poNumber || plan?.poNumber || '').trim().toUpperCase();
       const itemCd = (act.itemCode || plan?.itemCode || '').trim().toUpperCase();
       if (!poNum) return;
-      const key = `${poNum}__${itemCd}`;
-      if (!groups[key]) {
-        groups[key] = {
+      if (!groups[poNum]) {
+        groups[poNum] = {
           poNumber: poNum,
           itemCode: itemCd,
           description: act.description || plan?.description || `Vật tư ${itemCd}`,
@@ -919,17 +984,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           issued: {},
           comp: {},
         };
+      } else {
+        if (!groups[poNum].itemCode && itemCd) groups[poNum].itemCode = itemCd;
       }
       Object.entries(act.sizeQuantities || {}).forEach(([s, q]) => {
-        groups[key].received[s] = (groups[key].received[s] || 0) + (Number(q) || 0);
+        groups[poNum].received[s] = (groups[poNum].received[s] || 0) + (Number(q) || 0);
       });
     });
 
     currentCustomerProductionIssues.forEach((issue) => {
-      const key = `${issue.poNumber.trim().toUpperCase()}__${issue.itemCode.trim().toUpperCase()}`;
-      if (!groups[key]) {
-        groups[key] = {
-          poNumber: issue.poNumber,
+      const poNum = issue.poNumber.trim().toUpperCase();
+      if (!poNum) return;
+      if (!groups[poNum]) {
+        groups[poNum] = {
+          poNumber: poNum,
           itemCode: issue.itemCode,
           description: 'Vật tư sản xuất',
           unit: issue.unit,
@@ -939,15 +1007,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       }
       Object.entries(issue.sizeQuantities || {}).forEach(([s, q]) => {
-        groups[key].issued[s] = (groups[key].issued[s] || 0) + (Number(q) || 0);
+        groups[poNum].issued[s] = (groups[poNum].issued[s] || 0) + (Number(q) || 0);
       });
     });
 
     currentCustomerProductionReports.forEach((rep) => {
-      const key = `${rep.poNumber.trim().toUpperCase()}__${rep.itemCode.trim().toUpperCase()}`;
-      if (!groups[key]) {
-        groups[key] = {
-          poNumber: rep.poNumber,
+      const poNum = rep.poNumber.trim().toUpperCase();
+      if (!poNum) return;
+      if (!groups[poNum]) {
+        groups[poNum] = {
+          poNumber: poNum,
           itemCode: rep.itemCode,
           description: 'Vật tư sản xuất',
           unit: rep.unit,
@@ -957,40 +1026,40 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       }
       Object.entries(rep.compensationFromStock || {}).forEach(([s, q]) => {
-        groups[key].comp[s] = (groups[key].comp[s] || 0) + (Number(q) || 0);
+        groups[poNum].comp[s] = (groups[poNum].comp[s] || 0) + (Number(q) || 0);
       });
     });
 
-    // Ghi nhận xuất bù nhập tay trực tiếp từ Tab 5
-    Object.entries(stockCompensations).forEach(([key, sizeMap]) => {
-      if (!groups[key]) {
+    // Ghi nhận xuất bù nhập tay trực tiếp từ Tab 6
+    Object.entries(stockCompensations).forEach(([k, sizeMap]) => {
+      const poNum = (k.includes('__') ? k.split('__')[0] : k).trim().toUpperCase();
+      if (!groups[poNum]) {
         const plan = currentCustomerPlanOrders.find(
-          (p) => `${p.poNumber.trim().toUpperCase()}__${p.itemCode.trim().toUpperCase()}` === key
+          (p) => p.poNumber.trim().toUpperCase() === poNum
         );
-        if (plan) {
-          groups[key] = {
-            poNumber: plan.poNumber,
-            itemCode: plan.itemCode,
-            description: plan.description,
-            unit: plan.unit,
-            received: {},
-            issued: {},
-            comp: {},
-          };
-        }
+        groups[poNum] = {
+          poNumber: poNum,
+          itemCode: plan?.itemCode || '',
+          description: plan?.description || 'Vật tư sản xuất',
+          unit: plan?.unit || 'PRS',
+          received: {},
+          issued: {},
+          comp: {},
+        };
       }
-      if (groups[key]) {
+      if (groups[poNum]) {
         Object.entries(sizeMap).forEach(([s, q]) => {
-          groups[key].comp[s] = (groups[key].comp[s] || 0) + (Number(q) || 0);
+          groups[poNum].comp[s] = (groups[poNum].comp[s] || 0) + (Number(q) || 0);
         });
       }
     });
 
     // Ghi nhận vật tư bổ sung bù từ khách hàng vào tồn kho
-    Object.entries(supplementalMaterialStock).forEach(([key, sizeMap]) => {
-      if (groups[key]) {
+    Object.entries(supplementalMaterialStock).forEach(([k, sizeMap]) => {
+      const poNum = (k.includes('__') ? k.split('__')[0] : k).trim().toUpperCase();
+      if (groups[poNum]) {
         Object.entries(sizeMap).forEach(([s, q]) => {
-          groups[key].received[s] = (groups[key].received[s] || 0) + (Number(q) || 0);
+          groups[poNum].received[s] = (groups[poNum].received[s] || 0) + (Number(q) || 0);
         });
       }
     });
@@ -1183,7 +1252,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const saveActualReceive = (actual: ActualReceiveRow) => {
     setActualReceives((prev) => {
-      const idx = prev.findIndex((a) => a.planOrderId === actual.planOrderId);
+      const idx = prev.findIndex(
+        (a) => a.id === actual.id || (a.planOrderId === actual.planOrderId && (!a.id || a.id === actual.id))
+      );
       if (idx >= 0) {
         const next = [...prev];
         next[idx] = actual;
@@ -1196,9 +1267,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const saveActualReceives = (actuals: ActualReceiveRow[]) => {
     setActualReceives((prev) => {
-      const map = new Map(prev.map((a) => [a.planOrderId, a]));
+      const map = new Map(prev.map((a) => [a.id || a.planOrderId, a]));
       actuals.forEach((act) => {
-        map.set(act.planOrderId, act);
+        map.set(act.id || act.planOrderId, act);
       });
       return Array.from(map.values());
     });
@@ -1240,8 +1311,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     syncToApi('DELETE_PRODUCTION_REPORT', { id });
   };
 
+  const deleteActualReceive = (idOrPlanOrderId: string) => {
+    setActualReceives((prev) =>
+      prev.filter(
+        (a) =>
+          a.id !== idOrPlanOrderId &&
+          a.planOrderId !== idOrPlanOrderId &&
+          a.id !== `act-${idOrPlanOrderId}`
+      )
+    );
+    syncToApi('DELETE_ACTUAL_RECEIVE', { id: idOrPlanOrderId });
+  };
+
   const resetActualReceive = (planOrderId: string) => {
-    setActualReceives((prev) => prev.filter((a) => a.planOrderId !== planOrderId));
+    setActualReceives((prev) => prev.filter((a) => a.planOrderId !== planOrderId && a.id !== planOrderId));
     syncToApi('DELETE_ACTUAL_RECEIVE', { planOrderId });
   };
 
@@ -1502,6 +1585,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addProductionReport,
         updateProductionReport,
         deleteProductionReport,
+        deleteActualReceive,
         resetActualReceive,
         updateCompensationRequestStatus,
         updateCompensationRequestDate,

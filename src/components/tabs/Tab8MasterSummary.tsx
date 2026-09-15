@@ -100,17 +100,29 @@ export const Tab8MasterSummary: React.FC = () => {
     );
   };
 
-  // Combine data per PO + itemCode
+  // Combine data GROUPED BY PO (Mỗi PO là một khóa chính duy nhất)
   const summaryRows = useMemo(() => {
-    return currentCustomerPlanOrders.map((plan, idx) => {
-      const poNum = plan.poNumber.trim().toUpperCase();
-      const itemCd = (plan.itemCode || '').trim().toUpperCase();
-      const key = `${poNum}__${itemCd}`;
+    // Thu thập danh sách PO duy nhất từ đơn hàng, kế hoạch, và xuất kho
+    const allPoNumbers = Array.from(
+      new Set([
+        ...currentCustomerPOs.map((p) => p.poNumber.trim().toUpperCase()),
+        ...currentCustomerPlanOrders.map((p) => p.poNumber.trim().toUpperCase()),
+        ...currentCustomerFinishedGoodsDeliveries.map((d) => d.poNumber.trim().toUpperCase()),
+      ])
+    ).filter(Boolean);
 
-      // 1. Số trên đơn hàng gốc (đọc từ bảng quản lý đơn hàng trong Khách hàng và dải size)
+    return allPoNumbers.map((poNum, idx) => {
+      // 1. Tìm đơn hàng gốc (từ Khách hàng và dải size)
       const originalPO = currentCustomerPOs.find(
         (p) => p.poNumber.trim().toUpperCase() === poNum
       );
+      // Tìm các kế hoạch nhập tương ứng
+      const matchingPlans = currentCustomerPlanOrders.filter(
+        (p) => p.poNumber.trim().toUpperCase() === poNum
+      );
+      const firstPlan = matchingPlans[0];
+      const itemCd = (originalPO?.style || firstPlan?.itemCode || '').trim().toUpperCase();
+      const key = poNum;
 
       const orderSizes: Record<string, number> = {};
       let orderTotal = 0;
@@ -119,8 +131,8 @@ export const Tab8MasterSummary: React.FC = () => {
         let val = 0;
         if (originalPO?.sizeQuantities && typeof originalPO.sizeQuantities[s] === 'number') {
           val = Number(originalPO.sizeQuantities[s]);
-        } else if (typeof plan.sizeQuantities[s] === 'number') {
-          val = Number(plan.sizeQuantities[s]);
+        } else if (matchingPlans.length > 0) {
+          val = matchingPlans.reduce((sum, p) => sum + (Number(p.sizeQuantities?.[s]) || 0), 0);
         }
         orderSizes[s] = val;
         orderTotal += val;
@@ -129,51 +141,33 @@ export const Tab8MasterSummary: React.FC = () => {
       if (orderTotal === 0) {
         if (originalPO && originalPO.targetQty > 0) {
           orderTotal = originalPO.targetQty;
-        } else if (plan.totalQty > 0) {
-          orderTotal = plan.totalQty;
+        } else if (matchingPlans.length > 0) {
+          orderTotal = matchingPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
         }
       }
 
-      // Stock item (Tab 5)
+      // Stock item (Tab 6)
       const stockItem =
-        currentCustomerRealtimeStock.find((st) => st.key === key) ||
-        currentCustomerRealtimeStock.find((st) => st.poNumber.trim().toUpperCase() === poNum);
+        currentCustomerRealtimeStock.find((st) => st.poNumber.trim().toUpperCase() === poNum) ||
+        currentCustomerRealtimeStock.find((st) => st.key === key);
 
-      // 2. Số đã xuất: Đọc trực tiếp từ dòng TỔNG CỘNG ĐÃ XUẤT trong Tab 8 (Kho & Xuất Thành Phẩm) theo mỗi PO
+      // 2. Số đã xuất: Đọc trực tiếp từ Tab 8 theo mỗi PO
       let poDeliveries = currentCustomerFinishedGoodsDeliveries.filter(
-        (d) =>
-          d.poNumber.trim().toUpperCase() === poNum &&
-          itemCd &&
-          d.itemCode &&
-          d.itemCode.trim().toUpperCase() === itemCd
+        (d) => d.poNumber.trim().toUpperCase() === poNum
       );
 
-      // Nếu không khớp cả mã hàng, lấy theo mã PO
-      if (poDeliveries.length === 0) {
-        poDeliveries = currentCustomerFinishedGoodsDeliveries.filter(
-          (d) => d.poNumber.trim().toUpperCase() === poNum
-        );
-      }
-
       // Đối chiếu thêm với currentCustomerFinishedGoodsStock (nơi lưu trữ tồn kho TP tổng hợp theo PO)
-      const fgStockItem =
-        currentCustomerFinishedGoodsStock.find(
-          (fg) =>
-            fg.poNumber.trim().toUpperCase() === poNum &&
-            itemCd &&
-            fg.itemCode &&
-            fg.itemCode.trim().toUpperCase() === itemCd
-        ) ||
-        currentCustomerFinishedGoodsStock.find(
-          (fg) => fg.poNumber.trim().toUpperCase() === poNum
-        );
+      const fgStockItem = currentCustomerFinishedGoodsStock.find(
+        (fg) => fg.poNumber.trim().toUpperCase() === poNum
+      );
 
       const itemType = poDeliveries[0]?.itemType || fgStockItem?.itemType || 'Thành Phẩm';
       const materialName =
         poDeliveries[0]?.materialName ||
         fgStockItem?.materialName ||
-        (plan as any).materialName ||
-        plan.description ||
+        (firstPlan as any)?.materialName ||
+        firstPlan?.description ||
+        originalPO?.style ||
         '';
 
       const issuedSizes: Record<string, number> = {};
@@ -198,7 +192,7 @@ export const Tab8MasterSummary: React.FC = () => {
         }
       }
 
-      // 3. Số còn cần xuất = Số trên đơn hàng gốc - Số đã xuất (đọc từ Tab 8)
+      // 3. Số còn cần xuất = Số trên đơn hàng gốc - Số đã xuất
       const neededSizes: Record<string, number> = {};
       let neededTotal = 0;
       sizes.forEach((s) => {
@@ -232,17 +226,22 @@ export const Tab8MasterSummary: React.FC = () => {
         stockTotal = fgStockItem.totalStock;
       }
 
+      const receiptDate = firstPlan?.receiptDate || originalPO?.orderDate || '';
+      const voucherCode = Array.from(new Set(matchingPlans.map((p) => p.voucherCode).filter(Boolean))).join(', ');
+      const description = firstPlan?.description || originalPO?.style || `PO ${poNum}`;
+      const unit = firstPlan?.unit || originalPO?.unit || 'PRS';
+
       return {
-        id: plan.id,
+        id: firstPlan?.id || `summary-po-${poNum}`,
         stt: idx + 1,
-        date: plan.receiptDate,
-        poNumber: plan.poNumber,
-        itemCode: plan.itemCode,
+        date: receiptDate,
+        poNumber: poNum,
+        itemCode: itemCd,
         itemType,
         materialName,
-        voucherCode: plan.voucherCode,
-        description: plan.description,
-        unit: plan.unit,
+        voucherCode,
+        description,
+        unit,
         poDeliveries,
 
         // 4 chỉ số nghiệp vụ chính
@@ -260,8 +259,8 @@ export const Tab8MasterSummary: React.FC = () => {
       };
     });
   }, [
-    currentCustomerPlanOrders,
     currentCustomerPOs,
+    currentCustomerPlanOrders,
     currentCustomerRealtimeStock,
     currentCustomerFinishedGoodsDeliveries,
     currentCustomerFinishedGoodsStock,

@@ -116,7 +116,9 @@ export const Tab2ActualReceive: React.FC = () => {
     currentCustomerActualReceives,
     addPlanOrders,
     updatePlanOrder,
+    deletePlanOrder,
     saveActualReceives,
+    deleteActualReceive,
     resetActualReceive,
   } = useInventory();
 
@@ -277,31 +279,27 @@ export const Tab2ActualReceive: React.FC = () => {
     }, 0);
   };
 
-  // Reset or delete a row
-  const handleResetRow = (row: Tab2WorkingRow) => {
-    if (row.isNew) {
-      if (workingRows.length <= 1) {
-        setWorkingRows([createNewTab2RowHelper(0, sizes, defaultDate)]);
-      } else {
-        setWorkingRows((prev) => prev.filter((r) => r.id !== row.id));
-      }
-      toast(`Đã xóa dòng PO ${row.poNumber}`);
-      return;
-    }
+  // Xóa dòng vĩnh viễn khỏi Tab 2 và hệ thống
+  const handleDeleteRow = (row: Tab2WorkingRow) => {
+    confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn dòng PO ${row.poNumber || 'này'} khỏi hệ thống?`, () => {
+      // 1. Xóa khỏi thực nhận trong Context
+      deleteActualReceive(row.id);
 
-    confirm(`Bạn có chắc muốn đặt lại số lượng thực nhận của PO ${row.poNumber} về 0?`, () => {
-      setWorkingRows((prev) =>
-        prev.map((r) => {
-          if (r.id !== row.id) return r;
-          const emptySizes: Record<string, number | ''> = {};
-          sizes.forEach((s) => {
-            emptySizes[s] = '';
-          });
-          return { ...r, sizeQuantities: emptySizes, note: '' };
-        })
-      );
-      resetActualReceive(row.id);
-      toast(`✅ Đã đặt lại số thực nhận PO ${row.poNumber} về 0`);
+      // 2. Nếu dòng này có liên kết với kế hoạch Tab 1, xóa luôn kế hoạch để tránh tự sinh lại dòng
+      if (currentCustomerPlanOrders.some((p) => p.id === row.id)) {
+        deletePlanOrder(row.id);
+      }
+
+      // 3. Xóa khỏi workingRows trong giao diện
+      setWorkingRows((prev) => {
+        const remaining = prev.filter((r) => r.id !== row.id);
+        if (remaining.length === 0) {
+          return [createNewTab2RowHelper(0, sizes, defaultDate)];
+        }
+        return remaining;
+      });
+
+      toast(`🗑️ Đã xóa hoàn toàn dòng PO ${row.poNumber || ''}`);
     });
   };
 
@@ -1136,9 +1134,9 @@ export const Tab2ActualReceive: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleResetRow(row)}
+                            onClick={() => handleDeleteRow(row)}
                             className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
-                            title={row.isNew ? 'Xóa dòng này' : 'Đặt lại số lượng thực nhận về 0'}
+                            title="Xóa vĩnh viễn dòng này khỏi hệ thống"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

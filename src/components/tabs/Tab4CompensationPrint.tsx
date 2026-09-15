@@ -25,12 +25,14 @@ import {
 import { PrintHtmlModal, PrintTableRow } from '../common/PrintHtmlModal';
 import { useMessageBox } from '../common/MessageBox';
 import * as XLSX from 'xlsx';
+import { SearchablePoSelect } from '../common/SearchablePoSelect';
 
 export const Tab4CompensationPrint: React.FC = () => {
   const { alert, confirm, toast } = useMessageBox();
   const {
     currentCustomer,
     activeSizeRun,
+    currentCustomerPOs,
     currentCustomerCompensationItems,
     updateCompensationRequestStatus,
     updateCompensationRequestDate,
@@ -984,13 +986,18 @@ Số lượng này sẽ tự động được cộng vào Số Thực Nhận (Ta
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Mã PO <span className="text-rose-600">*</span>
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <SearchablePoSelect
                     value={newPoNumber}
-                    onChange={(e) => setNewPoNumber(e.target.value)}
-                    placeholder="VD: PO-2026-001"
-                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-indigo-500 font-mono font-bold"
+                    pos={currentCustomerPOs}
+                    onChange={(val) => setNewPoNumber(val)}
+                    onSelectPo={(po) => {
+                      setNewPoNumber(po.poNumber);
+                      if (!newItemCode && po.style) {
+                        setNewItemCode(po.style);
+                      }
+                    }}
+                    placeholder="Chọn hoặc nhập PO..."
+                    className="w-full text-xs border border-slate-300 rounded p-2 uppercase focus:ring-1 focus:ring-indigo-500 font-mono font-bold bg-white"
                   />
                 </div>
 

@@ -615,7 +615,7 @@ export const Tab5ProductionIssue: React.FC = () => {
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
               <Factory className="w-4 h-4 text-sky-600" />
-              <span>TAB 6: XUẤT VẬT TƯ CHO SẢN XUẤT (CẤP PHÁT XUỐNG CHUYỀN)</span>
+              <span>TAB 5: XUẤT VẬT TƯ CHO SẢN XUẤT (CẤP PHÁT XUỐNG CHUYỀN)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
               | Nhập số Enter lưu và khóa dòng tại chỗ • Bấm Sửa để mở khóa trực tiếp trên ô

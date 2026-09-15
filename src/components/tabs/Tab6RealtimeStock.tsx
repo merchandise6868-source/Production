@@ -256,11 +256,11 @@ export const Tab6RealtimeStock: React.FC = () => {
         <div className="p-2.5 sm:p-3 bg-[#f8fafc] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
-              <Warehouse className="w-4 h-4 text-sky-600" />
-              <span>TAB 5: TỒN KHO VẬT TƯ REALTIME &amp; PHÂN LOẠI XUẤT</span>
+              <Warehouse className="w-4 h-4 text-emerald-600" />
+              <span>TAB 6: TỒN KHO VẬT TƯ REALTIME &amp; PHÂN LOẠI XUẤT</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
-              | Tồn = Thực nhận (Tab 2) - Xuất SX (Tab 6) - Xuất bù (Tab 7)
+              | Tồn = Thực nhận (Tab 2) - Xuất SX (Tab 5) - Xuất bù (Tab 7)
             </span>
           </div>
 

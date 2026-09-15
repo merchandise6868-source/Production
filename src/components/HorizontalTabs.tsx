@@ -58,15 +58,15 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     },
     {
       id: 5,
-      label: 'Tab 5: Tồn Kho Vật Tư Realtime',
-      icon: Warehouse,
-      badge: currentCustomerRealtimeStock.length > 0 ? `${currentCustomerRealtimeStock.length} mã` : null,
+      label: 'Tab 5: Xuất Vật Tư Cho Sản Xuất',
+      icon: Factory,
+      badge: currentCustomerProductionIssues.length > 0 ? `${currentCustomerProductionIssues.length} đợt` : null,
     },
     {
       id: 6,
-      label: 'Tab 6: Xuất Vật Tư Cho Sản Xuất',
-      icon: Factory,
-      badge: currentCustomerProductionIssues.length > 0 ? `${currentCustomerProductionIssues.length} đợt` : null,
+      label: 'Tab 6: Tồn Kho Vật Tư Realtime',
+      icon: Warehouse,
+      badge: currentCustomerRealtimeStock.length > 0 ? `${currentCustomerRealtimeStock.length} mã` : null,
     },
     {
       id: 7,

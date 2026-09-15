@@ -802,7 +802,18 @@ export const Tab7ProductionReport: React.FC = () => {
                         ) : (
                           <SearchablePoSelect
                             value={item.poNumber}
+                            pos={currentCustomerPOs}
+                            rowIdx={idx * 2}
+                            colKey="poNumber"
                             onChange={(val) => handleUpdateItemField(item.id, 'poNumber', val)}
+                            onSelectPo={(po) => {
+                              if (!item.itemCode && po.style) {
+                                handleUpdateItemField(item.id, 'itemCode', po.style);
+                              }
+                              if (!item.unit && po.unit) {
+                                handleUpdateItemField(item.id, 'unit', po.unit);
+                              }
+                            }}
                             onKeyDown={(e) => {
                               handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);

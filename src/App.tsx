@@ -88,8 +88,8 @@ export const AppContent: React.FC = () => {
           {activeTab === 1 && <Tab1PlanOrder />}
           {activeTab === 2 && <Tab2ActualReceive />}
           {activeTab === 3 && <Tab3Discrepancy />}
-          {activeTab === 5 && <Tab6RealtimeStock />}
-          {activeTab === 6 && <Tab5ProductionIssue />}
+          {activeTab === 5 && <Tab5ProductionIssue />}
+          {activeTab === 6 && <Tab6RealtimeStock />}
           {activeTab === 7 && <Tab7ProductionReport />}
           {activeTab === 8 && <Tab8FinishedGoods />}
           {activeTab === 9 && <Tab8MasterSummary />}
