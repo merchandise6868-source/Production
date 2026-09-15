@@ -144,6 +144,11 @@ interface InventoryContextType {
   ) => void;
   resetCompensationReceive: (itemId: string) => void;
 
+  // GOOGLE SHEETS BACKUP
+  googleSheetsWebhookUrl: string;
+  setGoogleSheetsWebhookUrl: (url: string) => void;
+  updateCustomerBackupInfo: (customerId: string, sheetUrl: string, timestamp: string) => void;
+
   resetAllData: () => void;
 }
 
@@ -209,6 +214,26 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [supplementalMaterialStock, setSupplementalMaterialStock] = useState<Record<string, Record<string, number>>>(() =>
     loadStored('supplementalMaterialStock', {})
   );
+
+  // Google Sheets Backup Webhook URL state
+  const [googleSheetsWebhookUrl, setGoogleSheetsWebhookUrlState] = useState<string>(() =>
+    loadStored('googleSheetsWebhookUrl', '')
+  );
+
+  const setGoogleSheetsWebhookUrl = (url: string) => {
+    setGoogleSheetsWebhookUrlState(url);
+    localStorage.setItem('dd_inventory_googleSheetsWebhookUrl', JSON.stringify(url));
+  };
+
+  const updateCustomerBackupInfo = (customerId: string, sheetUrl: string, timestamp: string) => {
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customerId
+          ? { ...c, googleSheetUrl: sheetUrl, lastBackupAt: timestamp }
+          : c
+      )
+    );
+  };
 
   // Date filters
   const [startDate, setStartDate] = useState<string>('01/09/2026');
@@ -1604,6 +1629,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // Compensation receiving
         receiveCompensationItem,
         resetCompensationReceive,
+
+        // Google Sheets Backup
+        googleSheetsWebhookUrl,
+        setGoogleSheetsWebhookUrl,
+        updateCustomerBackupInfo,
 
         resetAllData,
       }}

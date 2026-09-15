@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import {
   Building2,
   Calendar,
   Layers,
   RotateCcw,
+  Cloud,
 } from 'lucide-react';
 import { useMessageBox } from './common/MessageBox';
+import { GoogleSheetsBackupModal } from './common/GoogleSheetsBackupModal';
 
 export const Sidebar: React.FC = () => {
   const { confirm, toast } = useMessageBox();
@@ -24,6 +26,8 @@ export const Sidebar: React.FC = () => {
     currentCustomerReceipts,
     resetAllData,
   } = useInventory();
+
+  const [showBackupModal, setShowBackupModal] = useState(false);
 
   const handleReset = () => {
     confirm(
@@ -48,28 +52,24 @@ export const Sidebar: React.FC = () => {
               D&D Long An
             </h1>
             <p className="text-[11px] text-slate-500 truncate">
-              Kho & Gia Công Giày
+              Quản lý kho &amp; sản xuất
             </p>
           </div>
         </div>
       </div>
 
-      {/* Global Context Controls */}
-      <div className="p-4 space-y-4 flex-1 overflow-y-auto">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-          Thiết Lập Chung
-        </div>
-
-        {/* Khách hàng Dropdown */}
-        <div className="space-y-1">
-          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+      {/* Body Content */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        {/* Customer Selector */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
             <Building2 className="w-3.5 h-3.5 text-sky-600" />
-            <span>Khách Hàng:</span>
+            <span>ĐỐI TÁC / KHÁCH HÀNG</span>
           </label>
           <select
             value={selectedCustomerId}
             onChange={(e) => setSelectedCustomerId(e.target.value)}
-            className="w-full bg-slate-50 text-slate-900 text-xs font-semibold rounded-lg p-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer truncate"
+            className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold rounded-lg p-2 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
           >
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
@@ -79,38 +79,40 @@ export const Sidebar: React.FC = () => {
           </select>
         </div>
 
-        {/* Dải Size Hiển Thị Trực Quan */}
-        {currentCustomer && (
-          <div className="space-y-1.5">
-            <label className="flex items-center justify-between text-xs font-bold text-slate-700">
-              <span className="flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Dải Size Áp Dụng:</span>
-              </span>
-              <span className="text-[10px] text-indigo-600 font-semibold">
-                ({(activeSizeRun?.sizes || []).length} size)
-              </span>
-            </label>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 flex flex-wrap gap-1">
-              {(activeSizeRun?.sizes || ['4', '5', '6', '7', '8', '9', '10', '11', '12']).map((s) => (
-                <span
-                  key={s}
-                  className="px-1.5 py-0.5 bg-white border border-indigo-200 rounded font-mono font-bold text-[11px] text-indigo-900 shadow-2xs"
-                >
-                  {s}
-                </span>
-              ))}
+        {/* Size Run Display */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-sky-600" />
+            <span>DẢI SIZE HOẠT ĐỘNG</span>
+          </label>
+          <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="text-xs font-semibold text-slate-800">
+              {activeSizeRun ? activeSizeRun.name : 'Chưa thiết lập'}
+            </div>
+            <div className="text-[11px] font-mono text-slate-500 flex flex-wrap gap-1 mt-1">
+              {activeSizeRun && activeSizeRun.sizes && activeSizeRun.sizes.length > 0 ? (
+                activeSizeRun.sizes.map((s) => (
+                  <span
+                    key={s}
+                    className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-700 font-bold"
+                  >
+                    {s}
+                  </span>
+                ))
+              ) : (
+                <span className="italic text-slate-400">4, 5, 6, 7, 8, 9, 10, 11, 12</span>
+              )}
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Kỳ Ngày Tháng Năm Filter */}
-        <div className="space-y-1">
-          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-            <Calendar className="w-3.5 h-3.5 text-amber-600" />
-            <span>Kỳ Lọc (DD/MM/YYYY):</span>
+        {/* Date Range Filter */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-sky-600" />
+            <span>KỲ BÁO CÁO (N-X-T)</span>
           </label>
-          <div className="grid grid-cols-2 gap-1">
+          <div className="grid grid-cols-2 gap-2">
             <input
               type="text"
               placeholder="Từ ngày"
@@ -127,22 +129,20 @@ export const Sidebar: React.FC = () => {
             />
           </div>
         </div>
-
-        {/* Quick Summary Card */}
-        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5 text-slate-600">
-          <div className="flex items-center justify-between font-bold text-slate-800 text-[11px]">
-            <span>Đơn Hàng (PO):</span>
-            <span className="text-sky-700 font-bold">{currentCustomerPOs.length} PO</span>
-          </div>
-          <div className="flex items-center justify-between font-bold text-slate-800 text-[11px]">
-            <span>Phiếu Nhập Kho:</span>
-            <span className="text-emerald-700 font-bold">{currentCustomerReceipts.length} phiếu</span>
-          </div>
-        </div>
       </div>
 
       {/* Footer in Sidebar */}
-      <div className="p-3 border-t border-slate-100 bg-slate-50/50 space-y-1.5">
+      <div className="p-3 border-t border-slate-100 bg-slate-50/50 space-y-2">
+        <button
+          type="button"
+          onClick={() => setShowBackupModal(true)}
+          className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 rounded-lg transition shadow-xs cursor-pointer"
+          title="Mở Trung tâm Sao lưu dữ liệu lên Google Sheets"
+        >
+          <Cloud className="w-4 h-4" />
+          <span>Sao Lưu Google Sheets</span>
+        </button>
+
         <button
           onClick={handleReset}
           className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors"
@@ -156,6 +156,12 @@ export const Sidebar: React.FC = () => {
           D&D Long An &copy; 2026
         </div>
       </div>
+
+      {/* Modal Sao Lưu Google Sheets */}
+      <GoogleSheetsBackupModal
+        isOpen={showBackupModal}
+        onClose={() => setShowBackupModal(false)}
+      />
     </aside>
   );
 };

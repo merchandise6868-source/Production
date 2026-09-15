@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Users,
   FileSpreadsheet,
@@ -10,8 +10,10 @@ import {
   ClipboardCheck,
   BarChart3,
   Truck,
+  Cloud,
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
+import { GoogleSheetsBackupModal } from './common/GoogleSheetsBackupModal';
 
 interface HorizontalTabsProps {
   activeTab: number;
@@ -34,6 +36,8 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
   const pendingCompCount = currentCustomerCompensationItems.filter(
     (c) => c.status !== 'Đã nhận bù' && !c.isFullyReceived
   ).length;
+
+  const [showBackupModal, setShowBackupModal] = useState(false);
 
   const tabs = [
     { id: 0, label: 'Khách Hàng & Dải Size', icon: Users, badge: null },
@@ -91,8 +95,8 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
   ];
 
   return (
-    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-2xs px-4 sm:px-6 py-2.5">
-      <nav className="flex space-x-1.5 overflow-x-auto scrollbar-none items-center">
+    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-2xs px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
+      <nav className="flex space-x-1.5 overflow-x-auto scrollbar-none items-center flex-1">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
@@ -143,6 +147,24 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
           );
         })}
       </nav>
+
+      {/* Nút Mở Trung Tâm Sao Lưu Google Sheets Đa Công Ty */}
+      <button
+        type="button"
+        onClick={() => setShowBackupModal(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-xs cursor-pointer shrink-0"
+        title="Mở Trung tâm Sao lưu dữ liệu lên Google Sheets (Đa công ty)"
+      >
+        <Cloud className="w-3.5 h-3.5" />
+        <span className="hidden md:inline">Sao Lưu Google Sheets</span>
+        <span className="md:hidden">Sao Lưu</span>
+      </button>
+
+      {/* Modal Sao Lưu Google Sheets */}
+      <GoogleSheetsBackupModal
+        isOpen={showBackupModal}
+        onClose={() => setShowBackupModal(false)}
+      />
     </div>
   );
 };

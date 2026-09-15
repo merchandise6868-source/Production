@@ -11,6 +11,8 @@ export interface Customer {
   note?: string;
   sizeRuns: SizeRun[];
   activeSizeRunId: string;
+  googleSheetUrl?: string;
+  lastBackupAt?: string;
 }
 
 export interface PurchaseOrder {
