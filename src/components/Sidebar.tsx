@@ -79,6 +79,9 @@ export const Sidebar: React.FC = () => {
                 {c.name} ({c.code})
               </option>
             ))}
+            {!customers.some((c) => c.id === 'cust-chung') && (
+              <option value="cust-chung">Kho Chung (Nội Bộ D&D) (CHUNG)</option>
+            )}
           </select>
         </div>
 

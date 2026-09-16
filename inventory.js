@@ -67,7 +67,6 @@ export async function onRequestGet(context) {
       db.prepare("SELECT * FROM app_metadata").all().catch(() => ({ results: [] })),
     ]);
 
-    // Parse các trường JSON
     const customers = (customersRes.results || []).map(c => ({
       id: c.id,
       code: c.code,
@@ -76,6 +75,23 @@ export async function onRequestGet(context) {
       sizeRuns: c.size_runs ? JSON.parse(c.size_runs) : [],
       activeSizeRunId: c.active_size_run_id || ''
     }));
+
+    if (!customers.some(c => c.id === 'cust-chung')) {
+      customers.push({
+        id: 'cust-chung',
+        code: 'CHUNG',
+        name: 'Kho Chung (Nội Bộ D&D)',
+        note: 'Quản lý kho nội bộ: Công cụ dụng cụ, Vật tư sản xuất & Thiết bị máy móc',
+        sizeRuns: [
+          {
+            id: 'sr-chung-standard',
+            name: 'Quản Lý Theo ĐVT (Cái, Bộ, Mét, Kg, Hộp, Cây...)',
+            sizes: [],
+          },
+        ],
+        activeSizeRunId: 'sr-chung-standard',
+      });
+    }
 
     const planOrders = (planOrdersRes.results || []).map(p => ({
       id: p.id,

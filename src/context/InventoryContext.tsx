@@ -455,7 +455,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
 
         // Database đã có dữ liệu -> Cập nhật vào state có hợp nhất an toàn với trạng thái đã lưu trên máy
-        if (data.customers && data.customers.length > 0) setCustomers(data.customers);
+        if (data.customers && data.customers.length > 0) {
+          const chungCust = INITIAL_CUSTOMERS.find((c) => c.id === 'cust-chung');
+          const hasChung = data.customers.some((c: Customer) => c.id === 'cust-chung');
+          if (!hasChung && chungCust) {
+            setCustomers([...data.customers, chungCust]);
+          } else {
+            setCustomers(data.customers);
+          }
+        }
         if (data.planOrders) {
           setPlanOrders((prev) => {
             const prevMap = new Map(prev.map((p) => [p.id, p]));
