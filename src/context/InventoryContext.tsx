@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
 import {
   Customer,
   PurchaseOrder,
@@ -86,6 +86,7 @@ interface InventoryContextType {
   currentCustomerDeliveries: ProductionDelivery[];
   currentCustomerCompensations: CompensationOrder[];
   dashboardReportData: DashboardReportItem[];
+  inventoryMovementData: InventoryMovementRecord[];
 
   // ==========================================================================
   // PHÂN HỆ SRS: 7 TAB NGHIỆP VỤ LIÊN HOÀN
@@ -312,98 +313,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [lastAutoBackupTime, setLastAutoBackupTime] = useState<string | null>(() => {
     return localStorage.getItem('DD_LAST_AUTO_BACKUP_TIME');
   });
-
-  useEffect(() => {
-    if (!isAutoBackupEnabled || !googleSheetsWebhookUrl.trim()) return;
-
-    const checkAndTriggerAutoBackup = async () => {
-      const now = new Date();
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-
-      const isSlot1100 = hours === 11 && minutes >= 0 && minutes <= 5;
-      const isSlot1630 = hours === 16 && minutes >= 30 && minutes <= 35;
-
-      if (!isSlot1100 && !isSlot1630) return;
-
-      const slotKey = isSlot1100 ? 'DD_AUTO_BACKUP_DATE_1100' : 'DD_AUTO_BACKUP_DATE_1630';
-      const slotLabel = isSlot1100 ? '11:00' : '16:30';
-      const lastRunDate = localStorage.getItem(slotKey);
-
-      if (lastRunDate === todayStr) {
-        return; // Đã chạy trong ca này hôm nay rồi
-      }
-
-      // Đánh dấu đã chạy để không bị lặp lại trong khung giờ đó
-      localStorage.setItem(slotKey, todayStr);
-      const timeDisplay = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      const recordTime = `${todayStr} ${timeDisplay}`;
-      localStorage.setItem('DD_LAST_AUTO_BACKUP_TIME', recordTime);
-      setLastAutoBackupTime(recordTime);
-
-      try {
-        const currentSizes = activeSizeRun?.sizes && activeSizeRun.sizes.length > 0
-          ? activeSizeRun.sizes
-          : ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
-
-        for (const cust of customers) {
-          const cId = cust.id;
-          const cPos = purchaseOrders.filter((p) => p.customerId === cId);
-          const cPlans = planOrders.filter((p) => p.customerId === cId);
-          const cActuals = actualReceives.filter((a) => a.customerId === cId);
-          const cIssues = productionIssues.filter((i) => i.customerId === cId);
-          const cReports = productionReports.filter((r) => r.customerId === cId);
-          const cDeliveries = finishedGoodsDeliveries.filter((d) => d.customerId === cId);
-          const cFgStock = cId === selectedCustomerId ? currentCustomerFinishedGoodsStock : [];
-          const cDiscs = cId === selectedCustomerId ? currentCustomerDiscrepancies : [];
-          const cComps = cId === selectedCustomerId ? currentCustomerCompensationItems : [];
-          const cStock = cId === selectedCustomerId ? currentCustomerRealtimeStock : [];
-
-          const payload = buildCompanySheetsPayload(
-            cust,
-            currentSizes,
-            cPos,
-            cPlans,
-            cActuals,
-            cDiscs,
-            cComps,
-            cIssues,
-            cStock,
-            cReports,
-            cFgStock,
-            cDeliveries
-          );
-
-          await sendCompanyBackupToGoogleSheets(googleSheetsWebhookUrl, payload);
-        }
-        console.log(`[AutoBackup] Đã tự động sao lưu toàn bộ ${customers.length} công ty lúc ${slotLabel} thành công!`);
-      } catch (err) {
-        console.warn('[AutoBackup] Lỗi trong tiến trình tự động sao lưu:', err);
-      }
-    };
-
-    const intervalId = setInterval(checkAndTriggerAutoBackup, 30000);
-    checkAndTriggerAutoBackup();
-
-    return () => clearInterval(intervalId);
-  }, [
-    isAutoBackupEnabled,
-    googleSheetsWebhookUrl,
-    customers,
-    selectedCustomerId,
-    purchaseOrders,
-    planOrders,
-    actualReceives,
-    productionIssues,
-    productionReports,
-    finishedGoodsDeliveries,
-    currentCustomerFinishedGoodsStock,
-    currentCustomerDiscrepancies,
-    currentCustomerCompensationItems,
-    currentCustomerRealtimeStock,
-    activeSizeRun,
-  ]);
 
   // Date filters
   const [startDate, setStartDate] = useState<string>('01/09/2026');
@@ -1762,6 +1671,125 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setFinishedGoodsDeliveries((prev) => prev.filter((d) => d.id !== id));
     syncToApi('DELETE_FINISHED_GOODS_DELIVERY', { id });
   };
+
+  // ==========================================================================
+  // BỘ LẬP LỊCH TỰ ĐỘNG SAO LƯU (11:00 TRƯA & 16:30 CHIỀU MỖI NGÀY)
+  // Đặt ở cuối component sau khi tất cả state và useMemo đã khởi tạo hoàn tất
+  // ==========================================================================
+  const autoBackupDataRef = useRef({
+    googleSheetsWebhookUrl,
+    customers,
+    selectedCustomerId,
+    purchaseOrders,
+    planOrders,
+    actualReceives,
+    productionIssues,
+    productionReports,
+    finishedGoodsDeliveries,
+    currentCustomerFinishedGoodsStock,
+    currentCustomerDiscrepancies,
+    currentCustomerCompensationItems,
+    currentCustomerRealtimeStock,
+    activeSizeRun,
+  });
+
+  useEffect(() => {
+    autoBackupDataRef.current = {
+      googleSheetsWebhookUrl,
+      customers,
+      selectedCustomerId,
+      purchaseOrders,
+      planOrders,
+      actualReceives,
+      productionIssues,
+      productionReports,
+      finishedGoodsDeliveries,
+      currentCustomerFinishedGoodsStock,
+      currentCustomerDiscrepancies,
+      currentCustomerCompensationItems,
+      currentCustomerRealtimeStock,
+      activeSizeRun,
+    };
+  });
+
+  useEffect(() => {
+    if (!isAutoBackupEnabled) return;
+
+    const checkAndTriggerAutoBackup = async () => {
+      const data = autoBackupDataRef.current;
+      if (!data.googleSheetsWebhookUrl.trim()) return;
+
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      const isSlot1100 = hours === 11 && minutes >= 0 && minutes <= 5;
+      const isSlot1630 = hours === 16 && minutes >= 30 && minutes <= 35;
+
+      if (!isSlot1100 && !isSlot1630) return;
+
+      const slotKey = isSlot1100 ? 'DD_AUTO_BACKUP_DATE_1100' : 'DD_AUTO_BACKUP_DATE_1630';
+      const slotLabel = isSlot1100 ? '11:00' : '16:30';
+      const lastRunDate = localStorage.getItem(slotKey);
+
+      if (lastRunDate === todayStr) {
+        return; // Đã chạy trong ca này hôm nay rồi
+      }
+
+      // Đánh dấu đã chạy để không bị lặp lại trong khung giờ đó
+      localStorage.setItem(slotKey, todayStr);
+      const timeDisplay = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      const recordTime = `${todayStr} ${timeDisplay}`;
+      localStorage.setItem('DD_LAST_AUTO_BACKUP_TIME', recordTime);
+      setLastAutoBackupTime(recordTime);
+
+      try {
+        const currentSizes = data.activeSizeRun?.sizes && data.activeSizeRun.sizes.length > 0
+          ? data.activeSizeRun.sizes
+          : ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
+
+        for (const cust of data.customers) {
+          const cId = cust.id;
+          const cPos = data.purchaseOrders.filter((p) => p.customerId === cId);
+          const cPlans = data.planOrders.filter((p) => p.customerId === cId);
+          const cActuals = data.actualReceives.filter((a) => a.customerId === cId);
+          const cIssues = data.productionIssues.filter((i) => i.customerId === cId);
+          const cReports = data.productionReports.filter((r) => r.customerId === cId);
+          const cDeliveries = data.finishedGoodsDeliveries.filter((d) => d.customerId === cId);
+          const cFgStock = cId === data.selectedCustomerId ? data.currentCustomerFinishedGoodsStock : [];
+          const cDiscs = cId === data.selectedCustomerId ? data.currentCustomerDiscrepancies : [];
+          const cComps = cId === data.selectedCustomerId ? data.currentCustomerCompensationItems : [];
+          const cStock = cId === data.selectedCustomerId ? data.currentCustomerRealtimeStock : [];
+
+          const payload = buildCompanySheetsPayload(
+            cust,
+            currentSizes,
+            cPos,
+            cPlans,
+            cActuals,
+            cDiscs,
+            cComps,
+            cIssues,
+            cStock,
+            cReports,
+            cFgStock,
+            cDeliveries
+          );
+
+          await sendCompanyBackupToGoogleSheets(data.googleSheetsWebhookUrl, payload);
+        }
+        console.log(`[AutoBackup] Đã tự động sao lưu toàn bộ ${data.customers.length} công ty lúc ${slotLabel} thành công!`);
+      } catch (err) {
+        console.warn('[AutoBackup] Lỗi trong tiến trình tự động sao lưu:', err);
+      }
+    };
+
+    const intervalId = setInterval(checkAndTriggerAutoBackup, 30000);
+    checkAndTriggerAutoBackup();
+
+    return () => clearInterval(intervalId);
+  }, [isAutoBackupEnabled]);
 
   return (
     <InventoryContext.Provider
