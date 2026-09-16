@@ -12,6 +12,8 @@ import { Tab7ProductionReport } from './components/tabs/Tab7ProductionReport';
 import { Tab8FinishedGoods } from './components/tabs/Tab8FinishedGoods';
 import { Tab8MasterSummary } from './components/tabs/Tab8MasterSummary';
 import { MessageBoxProvider } from './components/common/MessageBox';
+import { LoginPage } from './components/auth/LoginPage';
+import { useInventory } from './context/InventoryContext';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -70,7 +72,13 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 }
 
 export const AppContent: React.FC = () => {
+  const { isAuthenticated, login } = useInventory();
   const [activeTab, setActiveTab] = useState<number>(1); // Default to Tab 1: Số Trên Phiếu
+
+  // Nếu chưa đăng nhập hoặc chưa có phiên thiết bị hợp lệ -> Hiển thị trang Login
+  if (!isAuthenticated) {
+    return <LoginPage onLoginSuccess={(user) => login(user)} />;
+  }
 
   return (
     <div className="min-h-screen flex bg-slate-100 text-slate-900 overflow-hidden">

@@ -6,6 +6,7 @@ import {
   Layers,
   RotateCcw,
   Cloud,
+  LogOut,
 } from 'lucide-react';
 import { useMessageBox } from './common/MessageBox';
 import { GoogleSheetsBackupModal } from './common/GoogleSheetsBackupModal';
@@ -25,6 +26,8 @@ export const Sidebar: React.FC = () => {
     currentCustomerPOs,
     currentCustomerReceipts,
     resetAllData,
+    currentUser,
+    logout,
   } = useInventory();
 
   const [showBackupModal, setShowBackupModal] = useState(false);
@@ -151,6 +154,31 @@ export const Sidebar: React.FC = () => {
           <RotateCcw className="w-3.5 h-3.5" />
           <span>Khôi Phục Mẫu</span>
         </button>
+
+        {/* Thông tin tài khoản & Nút Đăng Xuất */}
+        <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-sky-600 to-indigo-600 text-white flex items-center justify-center font-bold text-[10px] shrink-0 shadow-xs">
+              TK
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-[11px] text-slate-800 truncate leading-tight">
+                {currentUser || 'tienkyosx'}
+              </p>
+              <p className="text-[9px] text-teal-600 font-semibold leading-tight">
+                Quản Trị Viên
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer shrink-0"
+            title="Đăng xuất khỏi thiết bị này"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         <div className="text-[10px] text-center text-slate-400">
           D&D Long An &copy; 2026

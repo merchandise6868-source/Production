@@ -24,7 +24,10 @@ export interface SheetExportData {
   rows: (string | number)[][];
 }
 
+export const SECRET_API_TOKEN = 'DD_LONG_AN_SECURE_TOKEN_2026';
+
 export interface CompanyBackupPayload {
+  secretToken?: string;
   companyId: string;
   companyName: string;
   timestamp: string;
@@ -256,6 +259,7 @@ export function buildCompanySheetsPayload(
   });
 
   return {
+    secretToken: SECRET_API_TOKEN,
     companyId: customer.id,
     companyName: customer.name,
     timestamp,
@@ -336,21 +340,35 @@ export async function sendCompanyBackupToGoogleSheets(
     throw new Error('Chưa cấu hình Google Apps Script Webhook URL!');
   }
 
-  // Sử dụng text/plain để tránh CORS preflight OPTIONS request với Google Apps Script
-  const response = await fetch(cleanUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain;charset=utf-8',
-    },
-    body: JSON.stringify(payload),
-  });
+  // Khởi tạo AbortController timeout 35s để tránh treo vô hạn nếu mạng lag
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
 
-  if (!response.ok) {
-    throw new Error('Lỗi kết nối Google Apps Script (HTTP ' + response.status + ')');
+  try {
+    // Sử dụng text/plain để tránh CORS preflight OPTIONS request với Google Apps Script
+    const response = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error('Lỗi kết nối Google Apps Script (HTTP ' + response.status + ')');
+    }
+
+    const result: BackupResponse = await response.json();
+    return result;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Quá thời gian chờ (Timeout 35s)! Vui lòng kiểm tra lại kết nối mạng hoặc link Webhook.');
+    }
+    throw err;
   }
-
-  const result: BackupResponse = await response.json();
-  return result;
 }
 
 /**
