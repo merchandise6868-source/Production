@@ -207,6 +207,16 @@ export const Tab1PlanOrder: React.FC = () => {
     );
   };
 
+  // Cập nhật trạng thái tức thời (Hàng đơn <-> Hàng bù) và tự động lưu đồng bộ
+  const handleStatusChange = (id: string, newStatus: 'Hàng đơn' | 'Hàng bù') => {
+    handleUpdateItemField(id, 'status', newStatus);
+    const existing = currentCustomerPlanOrders.find((p) => p.id === id);
+    if (existing) {
+      updatePlanOrder({ ...existing, status: newStatus });
+      toast(`✅ Đã lưu trạng thái: ${newStatus}`);
+    }
+  };
+
   // Nhấn Enter hoặc bấm Lưu: Lưu và KHÓA DÒNG TẠI CHỖ (Giữ nguyên vị trí dòng, không thêm dòng thêm ô)
   const handleSaveRow = (id: string) => {
     const item = planItems.find((r) => r.id === id);
@@ -710,34 +720,26 @@ export const Tab1PlanOrder: React.FC = () => {
 
                     {/* Trạng Thái (Dropdown: Hàng đơn hoặc Hàng bù) */}
                     <td className="p-0 border-r border-slate-200 text-center bg-indigo-50/20">
-                      {isLocked ? (
-                        <div className="p-1.5 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              item.status === 'Hàng bù'
-                                ? 'bg-purple-100 text-purple-800 border border-purple-300'
-                                : 'bg-sky-100 text-sky-800 border border-sky-300'
-                            }`}
-                          >
-                            {item.status || 'Hàng đơn'}
-                          </span>
-                        </div>
-                      ) : (
-                        <select
-                          data-row-idx={idx}
-                          data-col-key="status"
-                          value={item.status || 'Hàng đơn'}
-                          onChange={(e) => handleUpdateItemField(item.id, 'status', e.target.value)}
-                          onKeyDown={(e) => {
-                            handleCellArrowNavigation(e, gridContainerRef);
-                            if (e.key === 'Enter') handleSaveRow(item.id);
-                          }}
-                          className="w-full h-8 px-1 text-xs bg-white border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold cursor-pointer text-center"
-                        >
-                          <option value="Hàng đơn">Hàng đơn</option>
-                          <option value="Hàng bù">Hàng bù</option>
-                        </select>
-                      )}
+                      <select
+                        data-row-idx={idx}
+                        data-col-key="status"
+                        value={item.status || 'Hàng đơn'}
+                        onChange={(e) =>
+                          handleStatusChange(item.id, e.target.value as 'Hàng đơn' | 'Hàng bù')
+                        }
+                        onKeyDown={(e) => {
+                          handleCellArrowNavigation(e, gridContainerRef);
+                          if (e.key === 'Enter') handleSaveRow(item.id);
+                        }}
+                        className={`w-full h-8 px-1 text-xs font-semibold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white cursor-pointer text-center ${
+                          item.status === 'Hàng bù'
+                            ? 'text-purple-800 font-bold bg-purple-50'
+                            : 'text-sky-800 font-bold'
+                        }`}
+                      >
+                        <option value="Hàng đơn">Hàng đơn</option>
+                        <option value="Hàng bù">Hàng bù</option>
+                      </select>
                     </td>
 
                     {/* Số Phiếu Giao */}

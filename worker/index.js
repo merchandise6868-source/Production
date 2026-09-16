@@ -7,6 +7,31 @@ async function ensureMetadataTable(db) {
       value TEXT
     )
   `).run();
+
+  try {
+    await db.prepare("ALTER TABLE plan_orders ADD COLUMN status TEXT DEFAULT 'Hàng đơn'").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN status TEXT DEFAULT 'Hàng đơn'").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN po_number TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN item_code TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN receipt_date TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN voucher_code TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN description TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN unit TEXT").run();
+  } catch {}
 }
 
 async function handleGetInventory(db) {
@@ -58,6 +83,7 @@ async function handleGetInventory(db) {
       unit: p.unit || 'PRS',
       sizeQuantities: p.size_quantities ? JSON.parse(p.size_quantities) : {},
       totalQty: Number(p.total_qty) || 0,
+      status: p.status || 'Hàng đơn',
       note: p.note || '',
       createdAt: p.created_at
     }));
@@ -66,8 +92,15 @@ async function handleGetInventory(db) {
       id: a.id,
       planOrderId: a.plan_order_id,
       customerId: a.customer_id,
+      receiptDate: a.receipt_date || '',
+      poNumber: a.po_number || '',
+      itemCode: a.item_code || '',
+      voucherCode: a.voucher_code || '',
+      description: a.description || '',
+      unit: a.unit || 'PRS',
       sizeQuantities: a.size_quantities ? JSON.parse(a.size_quantities) : {},
       totalQty: Number(a.total_qty) || 0,
+      status: a.status || 'Hàng đơn',
       note: a.note || '',
       updatedAt: a.updated_at
     }));
@@ -190,12 +223,12 @@ async function handlePostInventory(body, db) {
           for (const p of payload.planOrders) {
             statements.push(
               db.prepare(`
-                INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, note, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).bind(
                 p.id, p.customerId, p.receiptDate || '', p.poNumber || '', p.itemCode || '',
                 p.voucherCode || '', p.description || '', p.unit || 'PRS',
-                JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.note || '', p.createdAt || ''
+                JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.status || 'Hàng đơn', p.note || '', p.createdAt || ''
               )
             );
           }
@@ -205,11 +238,12 @@ async function handlePostInventory(body, db) {
           for (const a of payload.actualReceives) {
             statements.push(
               db.prepare(`
-                INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, size_quantities, total_qty, note, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).bind(
                 a.id, a.planOrderId || '', a.customerId || '',
-                JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.note || '', a.updatedAt || ''
+                a.receiptDate || '', a.poNumber || '', a.itemCode || '', a.voucherCode || '', a.description || '', a.unit || 'PRS',
+                JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.status || 'Hàng đơn', a.note || '', a.updatedAt || ''
               )
             );
           }
@@ -309,12 +343,12 @@ async function handlePostInventory(body, db) {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(p =>
           db.prepare(`
-            INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             p.id, p.customerId, p.receiptDate || '', p.poNumber || '', p.itemCode || '',
             p.voucherCode || '', p.description || '', p.unit || 'PRS',
-            JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.note || '', p.createdAt || ''
+            JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.status || 'Hàng đơn', p.note || '', p.createdAt || ''
           )
         );
         await db.batch(statements);
@@ -330,11 +364,12 @@ async function handlePostInventory(body, db) {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(a =>
           db.prepare(`
-            INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, size_quantities, total_qty, note, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             a.id, a.planOrderId || '', a.customerId || '',
-            JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.note || '', a.updatedAt || ''
+            a.receiptDate || '', a.poNumber || '', a.itemCode || '', a.voucherCode || '', a.description || '', a.unit || 'PRS',
+            JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.status || 'Hàng đơn', a.note || '', a.updatedAt || ''
           )
         );
         await db.batch(statements);

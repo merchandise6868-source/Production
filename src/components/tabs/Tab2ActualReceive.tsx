@@ -79,7 +79,7 @@ const buildInitialWorkingRows = (
     ];
   }
   return planOrders.map((plan) => {
-    const existing = actualReceives.find((a) => a.planOrderId === plan.id);
+    const existing = actualReceives.find((a) => a.planOrderId === plan.id || a.id === plan.id);
     const sq: Record<string, number | ''> = {};
     sizesList.forEach((s) => {
       if (existing && typeof existing.sizeQuantities[s] === 'number') {
@@ -92,16 +92,16 @@ const buildInitialWorkingRows = (
       id: plan.id,
       isNew: false,
       receiptDate: existing?.receiptDate || plan.receiptDate,
-      poNumber: plan.poNumber,
-      itemCode: plan.itemCode,
-      voucherCode: plan.voucherCode || '',
-      description: plan.description || '',
-      unit: plan.unit || 'PRS',
+      poNumber: existing?.poNumber || plan.poNumber,
+      itemCode: existing?.itemCode || plan.itemCode,
+      voucherCode: existing?.voucherCode || plan.voucherCode || '',
+      description: existing?.description || plan.description || '',
+      unit: existing?.unit || plan.unit || 'PRS',
       planTotalQty: plan.totalQty || 0,
       planSizeQuantities: plan.sizeQuantities || {},
       sizeQuantities: sq,
       status: existing?.status || plan.status || 'Hàng đơn',
-      note: existing?.note || '',
+      note: existing?.note || plan.note || '',
     };
   });
 };
@@ -160,7 +160,7 @@ export const Tab2ActualReceive: React.FC = () => {
       }
 
       const newRowsFromPlans: Tab2WorkingRow[] = missingPlans.map((plan) => {
-        const existingAct = currentCustomerActualReceives.find((a) => a.planOrderId === plan.id);
+        const existingAct = currentCustomerActualReceives.find((a) => a.planOrderId === plan.id || a.id === plan.id);
         const sq: Record<string, number | ''> = {};
         sizes.forEach((s) => {
           if (existingAct && typeof existingAct.sizeQuantities[s] === 'number') {
@@ -172,16 +172,17 @@ export const Tab2ActualReceive: React.FC = () => {
         return {
           id: plan.id,
           isNew: false,
-          receiptDate: plan.receiptDate,
-          poNumber: plan.poNumber,
-          itemCode: plan.itemCode,
-          voucherCode: plan.voucherCode || '',
-          description: plan.description || '',
-          unit: plan.unit || 'PRS',
+          receiptDate: existingAct?.receiptDate || plan.receiptDate,
+          poNumber: existingAct?.poNumber || plan.poNumber,
+          itemCode: existingAct?.itemCode || plan.itemCode,
+          voucherCode: existingAct?.voucherCode || plan.voucherCode || '',
+          description: existingAct?.description || plan.description || '',
+          unit: existingAct?.unit || plan.unit || 'PRS',
           planTotalQty: plan.totalQty || 0,
           planSizeQuantities: plan.sizeQuantities || {},
           sizeQuantities: sq,
-          note: existingAct?.note || '',
+          status: existingAct?.status || plan.status || 'Hàng đơn',
+          note: existingAct?.note || plan.note || '',
         };
       });
 
@@ -380,6 +381,7 @@ export const Tab2ActualReceive: React.FC = () => {
       });
 
       const existingPlan = currentCustomerPlanOrders.find((p) => p.id === row.id);
+      const existingAct = currentCustomerActualReceives.find((a) => a.planOrderId === row.id || a.id === row.id);
 
       if (!existingPlan) {
         // Dòng mới thêm từ Tab 2 (chưa có ở Tab 1) -> Khởi tạo PlanOrderRow tương ứng
@@ -399,13 +401,15 @@ export const Tab2ActualReceive: React.FC = () => {
           unit: row.unit || 'PRS',
           sizeQuantities: planSizes,
           totalQty: totalActual,
+          status: row.status || 'Hàng đơn',
           note: row.note || 'Khởi tạo từ Tab 2 Thực Nhận',
           createdAt: row.receiptDate || defaultDate,
         };
         newPlanOrdersToCreate.push(newPlan);
       } else {
-        // Nếu có sửa đổi thông tin định danh
+        // Nếu có sửa đổi bất kỳ thông tin nào (kể cả trạng thái Hàng đơn / Hàng bù)
         if (
+          existingPlan.status !== row.status ||
           existingPlan.poNumber !== row.poNumber ||
           existingPlan.itemCode !== row.itemCode ||
           existingPlan.receiptDate !== row.receiptDate ||
@@ -415,6 +419,7 @@ export const Tab2ActualReceive: React.FC = () => {
         ) {
           planOrdersToUpdate.push({
             ...existingPlan,
+            status: row.status || existingPlan.status || 'Hàng đơn',
             poNumber: row.poNumber.trim() || existingPlan.poNumber,
             itemCode: row.itemCode.trim() || existingPlan.itemCode,
             receiptDate: row.receiptDate || existingPlan.receiptDate,
@@ -426,7 +431,7 @@ export const Tab2ActualReceive: React.FC = () => {
       }
 
       actualRowsToSave.push({
-        id: `act-${row.id}`,
+        id: existingAct?.id || `act-${row.id}`,
         planOrderId: row.id,
         customerId: currentCustomer.id,
         receiptDate: row.receiptDate || defaultDate,

@@ -8,6 +8,31 @@ async function ensureMetadataTable(db) {
       value TEXT
     )
   `).run();
+
+  try {
+    await db.prepare("ALTER TABLE plan_orders ADD COLUMN status TEXT DEFAULT 'Hàng đơn'").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN status TEXT DEFAULT 'Hàng đơn'").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN po_number TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN item_code TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN receipt_date TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN voucher_code TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN description TEXT").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE actual_receives ADD COLUMN unit TEXT").run();
+  } catch {}
 }
 
 // 1. GET /api/inventory - Đọc toàn bộ dữ liệu từ D1
@@ -63,6 +88,7 @@ export async function onRequestGet(context) {
       unit: p.unit || 'PRS',
       sizeQuantities: p.size_quantities ? JSON.parse(p.size_quantities) : {},
       totalQty: Number(p.total_qty) || 0,
+      status: p.status || 'Hàng đơn',
       note: p.note || '',
       createdAt: p.created_at
     }));
@@ -71,8 +97,15 @@ export async function onRequestGet(context) {
       id: a.id,
       planOrderId: a.plan_order_id,
       customerId: a.customer_id,
+      receiptDate: a.receipt_date || '',
+      poNumber: a.po_number || '',
+      itemCode: a.item_code || '',
+      voucherCode: a.voucher_code || '',
+      description: a.description || '',
+      unit: a.unit || 'PRS',
       sizeQuantities: a.size_quantities ? JSON.parse(a.size_quantities) : {},
       totalQty: Number(a.total_qty) || 0,
+      status: a.status || 'Hàng đơn',
       note: a.note || '',
       updatedAt: a.updated_at
     }));
@@ -149,7 +182,11 @@ export async function onRequestGet(context) {
       receipts: metadata.receipts || [],
       deliveries: metadata.deliveries || [],
       compensations: metadata.compensations || [],
-      inventories: metadata.inventories || []
+      inventories: metadata.inventories || [],
+      finishedGoodsDeliveries: metadata.finishedGoodsDeliveries || [],
+      supplementalMaterialStock: metadata.supplementalMaterialStock || {},
+      compensationReceivedQuantities: metadata.compensationReceivedQuantities || {},
+      compensationStatusOverrides: metadata.compensationStatusOverrides || {}
     }), {
       headers: { "Content-Type": "application/json" }
     });
@@ -197,12 +234,12 @@ export async function onRequestPost(context) {
           for (const p of payload.planOrders) {
             statements.push(
               db.prepare(`
-                INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, note, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).bind(
                 p.id, p.customerId, p.receiptDate || '', p.poNumber || '', p.itemCode || '',
                 p.voucherCode || '', p.description || '', p.unit || 'PRS',
-                JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.note || '', p.createdAt || ''
+                JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.status || 'Hàng đơn', p.note || '', p.createdAt || ''
               )
             );
           }
@@ -212,11 +249,12 @@ export async function onRequestPost(context) {
           for (const a of payload.actualReceives) {
             statements.push(
               db.prepare(`
-                INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, size_quantities, total_qty, note, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).bind(
                 a.id, a.planOrderId || '', a.customerId || '',
-                JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.note || '', a.updatedAt || ''
+                a.receiptDate || '', a.poNumber || '', a.itemCode || '', a.voucherCode || '', a.description || '', a.unit || 'PRS',
+                JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.status || 'Hàng đơn', a.note || '', a.updatedAt || ''
               )
             );
           }
@@ -318,12 +356,12 @@ export async function onRequestPost(context) {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(p =>
           db.prepare(`
-            INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO plan_orders (id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             p.id, p.customerId, p.receiptDate || '', p.poNumber || '', p.itemCode || '',
             p.voucherCode || '', p.description || '', p.unit || 'PRS',
-            JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.note || '', p.createdAt || ''
+            JSON.stringify(p.sizeQuantities || {}), p.totalQty || 0, p.status || 'Hàng đơn', p.note || '', p.createdAt || ''
           )
         );
         await db.batch(statements);
@@ -340,11 +378,12 @@ export async function onRequestPost(context) {
         const list = Array.isArray(payload) ? payload : [payload];
         const statements = list.map(a =>
           db.prepare(`
-            INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, size_quantities, total_qty, note, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO actual_receives (id, plan_order_id, customer_id, receipt_date, po_number, item_code, voucher_code, description, unit, size_quantities, total_qty, status, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             a.id, a.planOrderId || '', a.customerId || '',
-            JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.note || '', a.updatedAt || ''
+            a.receiptDate || '', a.poNumber || '', a.itemCode || '', a.voucherCode || '', a.description || '', a.unit || 'PRS',
+            JSON.stringify(a.sizeQuantities || {}), a.totalQty || 0, a.status || 'Hàng đơn', a.note || '', a.updatedAt || ''
           )
         );
         await db.batch(statements);
@@ -400,6 +439,91 @@ export async function onRequestPost(context) {
       // Cập nhật trạng thái phiếu bù (Tab 4)
       case 'UPDATE_COMPENSATION_STATUS': {
         await db.prepare("UPDATE compensation_requests SET status = ? WHERE id = ?").bind(payload.status, payload.id).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'UPDATE_COMPENSATION_DATE': {
+        await db.prepare("UPDATE compensation_requests SET request_date = ? WHERE id = ?").bind(payload.requestDate, payload.id).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'SAVE_COMPENSATION_REQUESTS': {
+        const list = Array.isArray(payload) ? payload : [payload];
+        const statements = list.map(cr =>
+          db.prepare(`
+            INSERT OR REPLACE INTO compensation_requests (id, customer_id, source, source_label, po_number, item_code, voucher_code, line_id, reason, size_quantities, total_qty, request_date, status, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            cr.id, cr.customerId || '', cr.source || '', cr.sourceLabel || '',
+            cr.poNumber || '', cr.itemCode || '', cr.voucherCode || '', cr.lineId || '',
+            cr.reason || '', JSON.stringify(cr.sizeQuantities || {}), cr.totalQty || 0,
+            cr.requestDate || '', cr.status || 'Chờ gửi KH', cr.note || ''
+          )
+        );
+        await db.batch(statements);
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'DELETE_COMPENSATION_REQUEST': {
+        await db.prepare("DELETE FROM compensation_requests WHERE id = ?").bind(payload.id).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'DELETE_ACTUAL_RECEIVE': {
+        await db.prepare("DELETE FROM actual_receives WHERE plan_order_id = ?").bind(payload.planOrderId).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'SAVE_FINISHED_GOODS_DELIVERY': {
+        const existingRow = await db.prepare("SELECT value FROM app_metadata WHERE key = 'finishedGoodsDeliveries'").first();
+        let deliveries = [];
+        if (existingRow && existingRow.value) {
+          try { deliveries = JSON.parse(existingRow.value); } catch {}
+        }
+        const idx = deliveries.findIndex(d => d.id === payload.id);
+        if (idx >= 0) {
+          deliveries[idx] = payload;
+        } else {
+          deliveries.unshift(payload);
+        }
+        await db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('finishedGoodsDeliveries', ?)").bind(JSON.stringify(deliveries)).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'DELETE_FINISHED_GOODS_DELIVERY': {
+        const existingRow = await db.prepare("SELECT value FROM app_metadata WHERE key = 'finishedGoodsDeliveries'").first();
+        let deliveries = [];
+        if (existingRow && existingRow.value) {
+          try { deliveries = JSON.parse(existingRow.value); } catch {}
+        }
+        deliveries = deliveries.filter(d => d.id !== payload.id);
+        await db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('finishedGoodsDeliveries', ?)").bind(JSON.stringify(deliveries)).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'SAVE_SUPPLEMENTAL_STOCK': {
+        await db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('supplementalMaterialStock', ?)").bind(JSON.stringify(payload)).run();
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      case 'RECEIVE_COMPENSATION': {
+        const { id, receivedQuantities, status } = payload;
+        if (status) {
+          await db.prepare("UPDATE compensation_requests SET status = ? WHERE id = ?").bind(status, id).run();
+        }
+        const qRow = await db.prepare("SELECT value FROM app_metadata WHERE key = 'compensationReceivedQuantities'").first();
+        let qMap = {};
+        if (qRow && qRow.value) try { qMap = JSON.parse(qRow.value); } catch {}
+        qMap[id] = receivedQuantities;
+        await db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('compensationReceivedQuantities', ?)").bind(JSON.stringify(qMap)).run();
+
+        if (status) {
+          const sRow = await db.prepare("SELECT value FROM app_metadata WHERE key = 'compensationStatusOverrides'").first();
+          let sMap = {};
+          if (sRow && sRow.value) try { sMap = JSON.parse(sRow.value); } catch {}
+          sMap[id] = status;
+          await db.prepare("INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('compensationStatusOverrides', ?)").bind(JSON.stringify(sMap)).run();
+        }
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       }
 

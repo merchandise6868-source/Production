@@ -40,7 +40,6 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   handleReset = () => {
-    localStorage.clear();
     window.location.reload();
   };
 

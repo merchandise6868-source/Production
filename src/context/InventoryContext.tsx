@@ -418,10 +418,40 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           return;
         }
 
-        // Database đã có dữ liệu -> Cập nhật vào state
+        // Database đã có dữ liệu -> Cập nhật vào state có hợp nhất an toàn với trạng thái đã lưu trên máy
         if (data.customers && data.customers.length > 0) setCustomers(data.customers);
-        if (data.planOrders) setPlanOrders(data.planOrders);
-        if (data.actualReceives) setActualReceives(data.actualReceives);
+        if (data.planOrders) {
+          setPlanOrders((prev) => {
+            const prevMap = new Map(prev.map((p) => [p.id, p]));
+            return data.planOrders.map((p: PlanOrderRow) => {
+              const local = prevMap.get(p.id);
+              return {
+                ...p,
+                status: p.status || local?.status || 'Hàng đơn',
+                note: p.note !== undefined ? p.note : (local?.note || ''),
+              };
+            });
+          });
+        }
+        if (data.actualReceives) {
+          setActualReceives((prev) => {
+            const prevMap = new Map(prev.map((a) => [a.planOrderId || a.id, a]));
+            return data.actualReceives.map((a: ActualReceiveRow) => {
+              const local = prevMap.get(a.planOrderId || a.id);
+              return {
+                ...a,
+                status: a.status || local?.status || 'Hàng đơn',
+                poNumber: a.poNumber || local?.poNumber || '',
+                itemCode: a.itemCode || local?.itemCode || '',
+                receiptDate: a.receiptDate || local?.receiptDate || '',
+                voucherCode: a.voucherCode || local?.voucherCode || '',
+                description: a.description || local?.description || '',
+                unit: a.unit || local?.unit || 'PRS',
+                note: a.note !== undefined ? a.note : (local?.note || ''),
+              };
+            });
+          });
+        }
         if (data.productionIssues) setProductionIssues(data.productionIssues);
         if (data.productionReports) setProductionReports(data.productionReports);
         if (data.compensationRequests) setCustomCompensationRequests(data.compensationRequests);
@@ -1403,38 +1433,114 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const updatePlanOrder = (order: PlanOrderRow) => {
     setPlanOrders((prev) => prev.map((p) => (p.id === order.id ? order : p)));
+    // Đồng bộ tức thời và chính xác sang actualReceives (giữ nguyên id của bản ghi thực nhận nếu đã có)
+    setActualReceives((prev) =>
+      prev.map((a) =>
+        a.planOrderId === order.id || a.id === order.id
+          ? {
+              ...a,
+              poNumber: order.poNumber,
+              itemCode: order.itemCode,
+              receiptDate: order.receiptDate,
+              voucherCode: order.voucherCode,
+              description: order.description,
+              unit: order.unit,
+              status: order.status || a.status || 'Hàng đơn',
+            }
+          : a
+      )
+    );
     syncToApi('SAVE_PLAN_ORDERS', [order]);
   };
 
   const deletePlanOrder = (id: string) => {
     setPlanOrders((prev) => prev.filter((p) => p.id !== id));
-    setActualReceives((prev) => prev.filter((a) => a.planOrderId !== id));
+    setActualReceives((prev) => prev.filter((a) => a.planOrderId !== id && a.id !== id));
     syncToApi('DELETE_PLAN_ORDER', { id });
   };
 
   const saveActualReceive = (actual: ActualReceiveRow) => {
+    const key = actual.planOrderId || actual.id;
     setActualReceives((prev) => {
-      const idx = prev.findIndex(
-        (a) => a.id === actual.id || (a.planOrderId === actual.planOrderId && (!a.id || a.id === actual.id))
-      );
+      const idx = prev.findIndex((a) => (a.planOrderId || a.id) === key);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = actual;
+        next[idx] = {
+          ...prev[idx],
+          ...actual,
+          id: prev[idx].id || actual.id,
+          planOrderId: actual.planOrderId || prev[idx].planOrderId || prev[idx].id,
+        };
         return next;
       }
       return [...prev, actual];
     });
+
+    // Đồng bộ ngược lại sang planOrders nếu có mã kế hoạch tương ứng
+    if (actual.planOrderId) {
+      setPlanOrders((prev) =>
+        prev.map((p) =>
+          p.id === actual.planOrderId
+            ? {
+                ...p,
+                status: actual.status || p.status || 'Hàng đơn',
+                poNumber: actual.poNumber || p.poNumber,
+                itemCode: actual.itemCode || p.itemCode,
+                receiptDate: actual.receiptDate || p.receiptDate,
+                voucherCode: actual.voucherCode !== undefined ? actual.voucherCode : p.voucherCode,
+                description: actual.description || p.description,
+                unit: actual.unit || p.unit,
+              }
+            : p
+        )
+      );
+    }
     syncToApi('SAVE_ACTUAL_RECEIVES', [actual]);
   };
 
   const saveActualReceives = (actuals: ActualReceiveRow[]) => {
     setActualReceives((prev) => {
-      const map = new Map(prev.map((a) => [a.id || a.planOrderId, a]));
+      const map = new Map<string, ActualReceiveRow>();
+      // Nạp danh sách hiện có, ưu tiên key là planOrderId nếu có
+      prev.forEach((a) => {
+        const k = a.planOrderId ? `plan_${a.planOrderId}` : `id_${a.id}`;
+        map.set(k, a);
+      });
+      // Cập nhật hoặc thêm mới các bản ghi mà không làm thay đổi hay mất ID cũ
       actuals.forEach((act) => {
-        map.set(act.id || act.planOrderId, act);
+        const k = act.planOrderId ? `plan_${act.planOrderId}` : `id_${act.id}`;
+        const existing = map.get(k);
+        map.set(k, {
+          ...existing,
+          ...act,
+          id: existing?.id || act.id,
+          planOrderId: act.planOrderId || existing?.planOrderId || (existing ? existing.id : undefined)!,
+        });
       });
       return Array.from(map.values());
     });
+
+    // Đồng bộ ngược lại sang planOrders cho tất cả các dòng vừa lưu
+    setPlanOrders((prev) => {
+      const actualMap = new Map(actuals.map((a) => [a.planOrderId || a.id, a]));
+      return prev.map((p) => {
+        const act = actualMap.get(p.id);
+        if (act) {
+          return {
+            ...p,
+            status: act.status || p.status || 'Hàng đơn',
+            poNumber: act.poNumber || p.poNumber,
+            itemCode: act.itemCode || p.itemCode,
+            receiptDate: act.receiptDate || p.receiptDate,
+            voucherCode: act.voucherCode !== undefined ? act.voucherCode : p.voucherCode,
+            description: act.description || p.description,
+            unit: act.unit || p.unit,
+          };
+        }
+        return p;
+      });
+    });
+
     syncToApi('SAVE_ACTUAL_RECEIVES', actuals);
   };
 
