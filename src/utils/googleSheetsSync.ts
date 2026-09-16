@@ -81,13 +81,14 @@ export function buildCompanySheetsPayload(
     ];
   });
 
-  // 2. Sheet 02: Tab 1 - Kế Hoạch Nhập Hàng
-  const tab1Headers = ['STT', 'Ngày Kế Hoạch', 'Mã PO', 'Code Vật Tư', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Kế Hoạch', 'Ghi Chú'];
+  // 2. Sheet 02: Tab 1 - Số Trên Phiếu
+  const tab1Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Trạng Thái', 'Số Phiếu', 'Quy Cách', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Kế Hoạch', 'Ghi Chú'];
   const tab1Rows = planOrders.map((p, idx) => [
     idx + 1,
     p.receiptDate,
     p.poNumber,
     p.itemCode,
+    p.status || 'Hàng đơn',
     p.voucherCode || '',
     p.description || '',
     p.unit || 'PRS',
@@ -97,36 +98,37 @@ export function buildCompanySheetsPayload(
   ]);
 
   // 3. Sheet 03: Tab 2 - Số Thực Nhận
-  const tab2Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Thực Nhận', 'Trạng Thái', 'Ghi Chú'];
+  const tab2Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Trạng Thái', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Thực Nhận', 'Ghi Chú'];
   const tab2Rows = actualReceives.map((a, idx) => [
     idx + 1,
     a.receiptDate || '',
     a.poNumber || '',
     a.itemCode || '',
+    a.status || 'Hàng đơn',
     a.voucherCode || '',
     a.description || '',
     a.unit || 'PRS',
     ...currentSizes.map((s) => a.sizeQuantities?.[s] ?? 0),
     a.totalQty,
-    a.status || 'Hàng đơn',
     a.note || '',
   ]);
 
   // 4. Sheet 04: Tab 3 - Bảng Chênh Lệch Gom Theo PO
-  const tab3Headers = ['STT', 'Mã PO', 'Code Vật Tư', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Lệch Size ' + s), 'Tổng Chênh Lệch', 'SL Kế Hoạch', 'SL Thực Nhận', 'Cần Cấp Bù?', 'Tình Trạng'];
+  const tab3Headers = ['STT', 'Mã PO', 'Code Vật Tư', 'Trạng Thái PO', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Lệch Size ' + s), 'Tổng Chênh Lệch', 'Cần Bù?', 'SL Đơn Gốc', 'Đã Nhận Bù', 'Tổng Thực Nhận'];
   const tab3Rows = discrepancies.map((d, idx) => [
     idx + 1,
     d.poNumber,
     d.itemCode,
+    d.statusText || (d.hasNegative ? 'Thiếu cần bù' : d.totalDiff > 0 ? 'Giao thừa' : 'Khớp đủ'),
     d.voucherCode || '',
     d.description || '',
     d.unit,
     ...currentSizes.map((s) => d.diffSizes?.[s] ?? 0),
     d.totalDiff,
-    d.totalPlan,
-    d.totalActual,
     d.needsCompensation ? 'CẦN BÙ [X]' : 'Đủ',
-    d.hasNegative ? 'GIAO THIẾU' : d.totalDiff === 0 ? 'Khớp đủ 100%' : 'Thừa hàng',
+    d.originalPlanQty ?? d.totalPlan,
+    d.compensationActualQty ?? 0,
+    d.totalActual,
   ]);
 
   // 5. Sheet 05: Tab 4 - Yêu Cầu Cấp Bù

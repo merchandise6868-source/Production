@@ -170,7 +170,7 @@ export interface ActualReceiveRow {
   updatedAt: string;
 }
 
-// TAB 3: SỐ CHÊNH LỆCH (Tự động tính & Cảnh báo âm)
+// TAB 3: SỐ CHÊNH LỆCH (Tự động tính & Cảnh báo âm - Group by theo PO)
 export interface DiscrepancyRow {
   planOrderId: string;
   customerId: string;
@@ -188,6 +188,13 @@ export interface DiscrepancyRow {
   totalDiff: number;
   hasNegative: boolean;              // Có ít nhất 1 size bị âm (< 0)
   needsCompensation: boolean;        // Cột BÙ? [x]
+  originalPlanQty?: number;          // Tổng SL Kế hoạch gốc (Hàng đơn)
+  compensationPlanQty?: number;      // Tổng SL Phiếu giao bù (Hàng bù)
+  originalActualQty?: number;        // Tổng SL Thực nhận gốc
+  compensationActualQty?: number;    // Tổng SL Thực nhận bù
+  statusText?: 'Khớp đủ' | 'Thiếu cần bù' | 'Giao thừa';
+  matchingPlans?: PlanOrderRow[];    // Chi tiết các phiếu thuộc PO
+  matchingActuals?: ActualReceiveRow[]; // Chi tiết các đợt nhận thuộc PO
 }
 
 // TAB 5: XUẤT CHO SẢN XUẤT (Cấp phát xuống Chuyền)

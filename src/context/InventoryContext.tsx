@@ -724,7 +724,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [finishedGoodsDeliveries, selectedCustomerId]
   );
 
-  // TAB 3: TỰ ĐỘNG TÍNH CHÊNH LỆCH = SỐ THỰC NHẬN (TAB 2) - SỐ TRÊN PHIẾU (TAB 1)
+  // TAB 3: TỰ ĐỘNG TÍNH CHÊNH LỆCH = TỔNG THỰC NHẬN LŨY KẾ (TAB 2) - KẾ HOẠCH ĐƠN GỐC (TAB 1)
   // GROUP BY THEO MÃ PO (PO LÀ KHÓA CHÍNH DUY NHẤT)
   const currentCustomerDiscrepancies: DiscrepancyRow[] = useMemo(() => {
     // 1. Thu thập toàn bộ danh sách PO duy nhất từ Tab 1 (Kế hoạch) và Tab 2 (Thực nhận)
@@ -748,39 +748,81 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           (a.planOrderId && matchingPlanIds.has(a.planOrderId))
       );
 
-      // Tổng hợp size kế hoạch
+      // Phân tách giữa Hàng đơn gốc và Hàng giao bù:
+      // A. Tab 1: Kế hoạch đơn gốc (Mục tiêu của PO cần nhận đủ)
+      const originalPlans = matchingPlans.filter((p) => (p.status || 'Hàng đơn') !== 'Hàng bù');
+      const compPlans = matchingPlans.filter((p) => p.status === 'Hàng bù');
+
+      // B. Tab 2: Thực nhận đơn gốc & Thực nhận hàng bù
+      const originalActuals = matchingActuals.filter((a) => (a.status || 'Hàng đơn') !== 'Hàng bù');
+      const compActuals = matchingActuals.filter((a) => a.status === 'Hàng bù');
+
+      // 1. Tổng hợp size kế hoạch GỐC (Chỉ lấy các dòng Hàng đơn)
       const planSizes: Record<string, number> = {};
       let totalPlan = 0;
-      matchingPlans.forEach((plan) => {
+      originalPlans.forEach((plan) => {
         Object.entries(plan.sizeQuantities || {}).forEach(([s, q]) => {
           const num = Number(q) || 0;
           planSizes[s] = (planSizes[s] || 0) + num;
           totalPlan += num;
         });
       });
-      if (totalPlan === 0 && matchingPlans.length > 0) {
-        totalPlan = matchingPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
+      if (totalPlan === 0 && originalPlans.length > 0) {
+        totalPlan = originalPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
       }
 
-      // Tổng hợp size thực nhận (cộng dồn các lần nhận, kể cả hàng bù)
+      // 2. Tổng hợp size phiếu bù (Tab 1 Hàng bù)
+      let compensationPlanQty = 0;
+      compPlans.forEach((plan) => {
+        Object.entries(plan.sizeQuantities || {}).forEach(([, q]) => {
+          compensationPlanQty += Number(q) || 0;
+        });
+      });
+      if (compensationPlanQty === 0 && compPlans.length > 0) {
+        compensationPlanQty = compPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
+      }
+
+      // 3. Tổng hợp size thực nhận GỐC (Tab 2 Hàng đơn)
+      let originalActualQty = 0;
+      originalActuals.forEach((actual) => {
+        Object.entries(actual.sizeQuantities || {}).forEach(([, q]) => {
+          originalActualQty += Number(q) || 0;
+        });
+      });
+      if (originalActualQty === 0 && originalActuals.length > 0) {
+        originalActualQty = originalActuals.reduce((sum, a) => sum + (Number(a.totalQty) || 0), 0);
+      }
+
+      // 4. Tổng hợp size thực nhận BÙ (Tab 2 Hàng bù)
+      let compensationActualQty = 0;
+      compActuals.forEach((actual) => {
+        Object.entries(actual.sizeQuantities || {}).forEach(([, q]) => {
+          compensationActualQty += Number(q) || 0;
+        });
+      });
+      if (compensationActualQty === 0 && compActuals.length > 0) {
+        compensationActualQty = compActuals.reduce((sum, a) => sum + (Number(a.totalQty) || 0), 0);
+      }
+
+      // 5. TỔNG THỰC NHẬN LŨY KẾ = Thực nhận gốc + Thực nhận hàng bù
       const actualSizes: Record<string, number> = {};
-      let totalActual = 0;
       matchingActuals.forEach((actual) => {
         Object.entries(actual.sizeQuantities || {}).forEach(([s, q]) => {
           const num = Number(q) || 0;
           actualSizes[s] = (actualSizes[s] || 0) + num;
-          totalActual += num;
         });
       });
-      if (totalActual === 0 && matchingActuals.length > 0) {
-        totalActual = matchingActuals.reduce((sum, a) => sum + (Number(a.totalQty) || 0), 0);
-      }
+      let totalActual = matchingActuals.reduce((sum, a) => {
+        const sqTot = Object.values(a.sizeQuantities || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+        return sum + (sqTot > 0 ? sqTot : Number(a.totalQty) || 0);
+      }, 0);
 
       // Tập hợp tất cả các size xuất hiện
       const allSizes = Array.from(
         new Set([...Object.keys(planSizes), ...Object.keys(actualSizes)])
       );
 
+      // 6. Tính chênh lệch từng Size = Thực nhận lũy kế (Size) - Kế hoạch gốc (Size)
       const diffSizes: Record<string, number> = {};
       let hasNeg = false;
 
@@ -797,6 +839,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const totalDiff = totalActual - totalPlan;
       if (totalDiff < 0) {
         hasNeg = true;
+      }
+
+      let statusText: 'Khớp đủ' | 'Thiếu cần bù' | 'Giao thừa' = 'Khớp đủ';
+      if (hasNeg) {
+        statusText = 'Thiếu cần bù';
+      } else if (totalDiff > 0) {
+        statusText = 'Giao thừa';
+      } else {
+        statusText = 'Khớp đủ';
       }
 
       const firstPlan = matchingPlans[0];
@@ -828,6 +879,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         totalDiff,
         hasNegative: hasNeg,
         needsCompensation: hasNeg,
+        originalPlanQty: totalPlan,
+        compensationPlanQty,
+        originalActualQty,
+        compensationActualQty,
+        statusText,
+        matchingPlans,
+        matchingActuals,
       };
     });
   }, [currentCustomerPlanOrders, currentCustomerActualReceives, selectedCustomerId]);

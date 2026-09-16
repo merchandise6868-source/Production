@@ -288,6 +288,7 @@ export const Tab1PlanOrder: React.FC = () => {
     { key: 'receiptDate', type: 'date' as const },
     { key: 'poNumber', type: 'text' as const },
     { key: 'itemCode', type: 'text' as const },
+    { key: 'status', type: 'status' as const },
     { key: 'voucherCode', type: 'text' as const },
     { key: 'description', type: 'text' as const },
     { key: 'unit', type: 'unit' as const },
@@ -371,6 +372,8 @@ export const Tab1PlanOrder: React.FC = () => {
           else if (colDef.key === 'description') targetRow.description = rawVal;
         } else if (colDef.type === 'unit') {
           if (rawVal) targetRow.unit = rawVal;
+        } else if (colDef.type === 'status') {
+          targetRow.status = /bù/i.test(rawVal) ? 'Hàng bù' : 'Hàng đơn';
         } else if (colDef.type === 'size') {
           const sizeName = colDef.size!;
           if (rawVal === '' || rawVal === '-') {
@@ -587,6 +590,9 @@ export const Tab1PlanOrder: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[95px]">Ngày Nhận *</th>
                 <th className="p-2 border-r border-slate-300 min-w-[130px]">Mã PO *</th>
                 <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[105px] text-center bg-indigo-50/80 text-indigo-900 font-bold">
+                  Trạng Thái
+                </th>
                 <th className="p-2 border-r border-slate-300 min-w-[110px]">Số Phiếu Giao</th>
                 <th className="p-2 border-r border-slate-300 min-w-[140px]">Quy Cách / Diễn Giải</th>
                 <th className="p-2 border-r border-slate-300 text-center w-14">ĐVT</th>
@@ -603,7 +609,6 @@ export const Tab1PlanOrder: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[85px] text-right bg-sky-100 text-sky-950 font-bold">
                   TỔNG SL
                 </th>
-                <th className="p-2 border-r border-slate-300 min-w-[95px] text-center">Trạng Thái</th>
                 <th className="p-2 border-r border-slate-300 min-w-[130px]">Ghi Chú</th>
                 <th className="p-2 text-center w-24">Thao Tác</th>
               </tr>
@@ -700,6 +705,38 @@ export const Tab1PlanOrder: React.FC = () => {
                           placeholder="Code Vật tư"
                           className="w-full h-8 px-2 text-xs font-mono font-bold text-slate-900 uppercase bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white"
                         />
+                      )}
+                    </td>
+
+                    {/* Trạng Thái (Dropdown: Hàng đơn hoặc Hàng bù) */}
+                    <td className="p-0 border-r border-slate-200 text-center bg-indigo-50/20">
+                      {isLocked ? (
+                        <div className="p-1.5 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.status === 'Hàng bù'
+                                ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                                : 'bg-sky-100 text-sky-800 border border-sky-300'
+                            }`}
+                          >
+                            {item.status || 'Hàng đơn'}
+                          </span>
+                        </div>
+                      ) : (
+                        <select
+                          data-row-idx={idx}
+                          data-col-key="status"
+                          value={item.status || 'Hàng đơn'}
+                          onChange={(e) => handleUpdateItemField(item.id, 'status', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-1 text-xs bg-white border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold cursor-pointer text-center"
+                        >
+                          <option value="Hàng đơn">Hàng đơn</option>
+                          <option value="Hàng bù">Hàng bù</option>
+                        </select>
                       )}
                     </td>
 
@@ -812,38 +849,6 @@ export const Tab1PlanOrder: React.FC = () => {
                       {rowTotal > 0 ? rowTotal.toLocaleString('vi-VN') : '-'}
                     </td>
 
-                    {/* Trạng Thái (Kế cuối: Dropdown Hàng đơn hoặc Hàng bù) */}
-                    <td className="p-0 border-r border-slate-200 text-center">
-                      {isLocked ? (
-                        <div className="p-1.5 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              item.status === 'Hàng bù'
-                                ? 'bg-purple-100 text-purple-800 border border-purple-300'
-                                : 'bg-sky-100 text-sky-800 border border-sky-300'
-                            }`}
-                          >
-                            {item.status || 'Hàng đơn'}
-                          </span>
-                        </div>
-                      ) : (
-                        <select
-                          data-row-idx={idx}
-                          data-col-key="status"
-                          value={item.status || 'Hàng đơn'}
-                          onChange={(e) => handleUpdateItemField(item.id, 'status', e.target.value)}
-                          onKeyDown={(e) => {
-                            handleCellArrowNavigation(e, gridContainerRef);
-                            if (e.key === 'Enter') handleSaveRow(item.id);
-                          }}
-                          className="w-full h-8 px-1 text-xs bg-white border border-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-500 font-semibold cursor-pointer text-center"
-                        >
-                          <option value="Hàng đơn">Hàng đơn</option>
-                          <option value="Hàng bù">Hàng bù</option>
-                        </select>
-                      )}
-                    </td>
-
                     {/* Ghi Chú */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
@@ -951,7 +956,7 @@ export const Tab1PlanOrder: React.FC = () => {
 
               {/* DÒNG TỔNG CỘNG TOÀN BỘ BẢNG */}
               <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
-                <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                <td colSpan={8} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
                   TỔNG CỘNG TRÊN PHIẾU KẾ HOẠCH:
                 </td>
                 {sizes.map((s) => (
