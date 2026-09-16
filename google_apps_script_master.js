@@ -1,81 +1,85 @@
 /**
  * ==============================================================================
- * GOOGLE APPS SCRIPT: MASTER HUB SAO LƯU DỮ LIỆU KHO ĐA CÔNG TY
+ * GOOGLE APPS SCRIPT: MASTER HUB SAO LƯU DỮ LIỆU KHO ĐA CÔNG TY (CHUẨN 10 SHEETS)
  * DỰ ÁN: HỆ THỐNG QUẢN LÝ KHO SẢN XUẤT - D&D LONG AN
  * ==============================================================================
  * 
- * HƯỚNG DẪN CÀI ĐẶT 2 PHÚT (CHỈ CẦN LÀM 1 LẦN DUY NHẤT):
+ * HƯỚNG DẪN CÀI ĐẶT / CẬP NHẬT WEB APP (CHỈ MẤT 1 - 2 PHÚT):
  * 1. Mở Google Drive của bạn (https://drive.google.com).
- * 2. Bấm "Mới" (+) -> Chọn "Ứng dụng khác" -> "Google Apps Script".
- * 3. Xóa toàn bộ mã mặc định và dán toàn bộ đoạn mã này vào.
- * 4. Bấm "Triển khai" (Deploy) -> "Tùy chọn triển khai mới" (New deployment).
- * 5. Mục "Chọn loại" -> Chọn "Ứng dụng web" (Web App).
- * 6. Cấu hình:
- *    - Mô tả: Master Hub Backup Kho
- *    - Thực thi dưới dạng: "Tôi" (Me)
- *    - Ai có quyền truy cập: "Bất kỳ ai" (Anyone)
- * 7. Bấm "Triển khai" (Deploy) -> Cấp quyền truy cập nếu Google hỏi -> Sao chép "URL của ứng dụng web".
- * 8. Dán URL này vào mục "Cấu hình Webhook" trên trang web quản lý kho.
+ * 2. Mở dự án Google Apps Script hiện tại của bạn HOẶC Bấm "Mới" (+) -> "Ứng dụng khác" -> "Google Apps Script".
+ * 3. XÓA TOÀN BỘ mã cũ trong trình soạn thảo Code.gs, DÁN TOÀN BỘ đoạn mã này vào và bấm Save (Ctrl+S).
+ * 4. Bấm nút "Triển khai" (Deploy) ở góc trên bên phải:
+ *    - Nếu dự án đã có: Chọn "Quản lý bản triển khai" (Manage deployments) -> Bấm icon Cây Bút (Edit) -> Chọn "Phiên bản mới" (New version) -> Bấm "Triển khai" (Deploy).
+ *    - Nếu dự án mới hoàn toàn: Chọn "Tùy chọn triển khai mới" (New deployment) -> Chọn loại "Ứng dụng web" (Web App) ->
+ *      + Mô tả: Web App Master Hub Kho D&D Long An
+ *      + Thực thi dưới dạng (Execute as): "Tôi" (Me)
+ *      + Ai có quyền truy cập (Who has access): "Bất kỳ ai" (Anyone)
+ *      + Bấm "Triển khai" (Deploy) -> Cấp quyền nếu Google hỏi xác thực.
+ * 5. Sao chép "URL của ứng dụng web" (dạng https://script.google.com/macros/s/.../exec).
+ * 6. Dán link này vào ô "Đường link Google Apps Script Webhook URL" trên ứng dụng Web Kho rồi bấm "Lưu URL".
  * ==============================================================================
  */
 
-// Tên thư mục gốc lưu trữ trên Google Drive
+// Tên thư mục gốc lưu trữ tập trung trên Google Drive
 const ROOT_FOLDER_NAME = "HỆ THỐNG KHO D&D LONG AN - DỮ LIỆU SAO LƯU";
 
 /**
- * Xử lý kiểm tra kết nối (GET Request)
+ * Xử lý kiểm tra kết nối từ Web App Kho (GET Request)
  */
 function doGet(e) {
   const result = {
     status: "ok",
     service: "Master Hub Backup Kho D&D Long An",
+    version: "2.0 - Trình tự cột chuẩn hóa",
     timestamp: new Date().toLocaleString("vi-VN"),
-    message: "Google Apps Script Master Hub đang hoạt động bình thường!"
+    message: "Google Apps Script Web App Master Hub đang hoạt động hoàn hảo!"
   };
-  return ContentService.createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+  return createJsonResponse(result);
 }
 
 /**
- * Xử lý sao lưu dữ liệu (POST Request)
+ * Xử lý nhận dữ liệu sao lưu từ Web Kho gửi sang (POST Request)
  */
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
-      return createJsonResponse({ success: false, error: "Dữ liệu payload trống!" });
+      return createJsonResponse({
+        success: false,
+        error: "Không nhận được nội dung dữ liệu payload từ Web!"
+      });
     }
 
     const payload = JSON.parse(e.postData.contents);
     const companyId = payload.companyId || "default";
-    const companyName = payload.companyName || "Công Ty";
+    const companyName = (payload.companyName || "Công Ty").trim();
     const sheetsData = payload.sheets || {};
     const timestamp = payload.timestamp || new Date().toLocaleString("vi-VN");
 
-    // 1. Tìm hoặc tự động tạo thư mục lưu trữ trên Google Drive
+    // 1. Tìm hoặc tự động tạo thư mục gốc trên Google Drive
     const targetFolder = getOrCreateFolder(ROOT_FOLDER_NAME);
 
-    // 2. Tìm hoặc tự động tạo File Google Sheet riêng cho công ty này
+    // 2. Tìm hoặc tự động tạo File Google Sheet riêng biệt cho công ty này
     const spreadsheet = getOrCreateCompanySpreadsheet(targetFolder, companyName);
     const spreadsheetUrl = spreadsheet.getUrl();
     const spreadsheetId = spreadsheet.getId();
 
     const updatedSheetNames = [];
 
-    // 3. Cập nhật từng Sheet tương ứng với từng Tab trên Web
+    // 3. Cập nhật từng Sheet tương ứng theo đúng trình tự và dữ liệu mới nhất
     for (const [sheetKey, sheetObj] of Object.entries(sheetsData)) {
       const sheetName = sheetObj.title || sheetKey;
       const headers = sheetObj.headers || [];
       const rows = sheetObj.rows || [];
       const headerColor = sheetObj.themeColor || "#1e3a8a";
 
-      updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor);
+      updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor, sheetKey);
       updatedSheetNames.push(sheetName);
     }
 
-    // 4. Ghi nhận nhật ký sao lưu vào Sheet cuối cùng
+    // 4. Ghi nhận nhật ký lịch sử sao lưu vào sheet cuối cùng
     updateBackupLogSheet(spreadsheet, companyName, timestamp, updatedSheetNames.length);
 
-    // Xóa Sheet mặc định "Sheet1" nếu có và đã có sheet dữ liệu khác
+    // 5. Xóa sheet mặc định "Sheet1" nếu có
     cleanupDefaultSheet(spreadsheet);
 
     return createJsonResponse({
@@ -110,7 +114,7 @@ function getOrCreateFolder(folderName) {
 }
 
 /**
- * Tìm hoặc tạo file Google Sheet cho từng công ty trong thư mục Drive
+ * Tìm hoặc tạo file Google Sheet riêng cho từng công ty trong thư mục Drive
  */
 function getOrCreateCompanySpreadsheet(folder, companyName) {
   const expectedFileName = "[KHO] - Báo Cáo - " + companyName.trim();
@@ -121,7 +125,7 @@ function getOrCreateCompanySpreadsheet(folder, companyName) {
     return SpreadsheetApp.openById(file.getId());
   }
 
-  // Nếu chưa có, tạo mới file Google Sheet và chuyển vào thư mục quy định
+  // Tạo mới file Google Sheet và lưu vào đúng thư mục công ty
   const newSheet = SpreadsheetApp.create(expectedFileName);
   const file = DriveApp.getFileById(newSheet.getId());
   folder.addFile(file);
@@ -130,9 +134,9 @@ function getOrCreateCompanySpreadsheet(folder, companyName) {
 }
 
 /**
- * Cập nhật nội dung và định dạng cho 1 Sheet
+ * Cập nhật nội dung và định dạng thẩm mỹ chuyên nghiệp cho 1 Sheet
  */
-function updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor) {
+function updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor, sheetKey) {
   let sheet = spreadsheet.getSheetByName(sheetName);
   if (!sheet) {
     sheet = spreadsheet.insertSheet(sheetName);
@@ -154,6 +158,7 @@ function updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor)
   const totalRows = allData.length;
   const totalCols = Math.max.apply(null, allData.map(function(r) { return r.length; }).concat([headers.length]));
 
+  // Chuẩn hóa ma trận dữ liệu
   const normalizedData = allData.map(function(row) {
     const newRow = new Array(totalCols).fill("");
     row.forEach(function(val, idx) {
@@ -168,7 +173,7 @@ function updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor)
   range.setFontSize(10);
   range.setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
 
-  // Định dạng dòng tiêu đề (Header)
+  // 1. Định dạng dòng tiêu đề (Header Row)
   if (headers.length > 0) {
     const headerRange = sheet.getRange(1, 1, 1, totalCols);
     headerRange.setBackground(headerColor);
@@ -181,12 +186,63 @@ function updateOrCreateSheet(spreadsheet, sheetName, headers, rows, headerColor)
     sheet.setFrozenRows(1);
   }
 
-  // Tự động căn chỉnh độ rộng cột
+  // 2. Định dạng trực quan đặc biệt cho từng loại Sheet
+  if (totalRows > 1) {
+    const dataRange = sheet.getRange(2, 1, totalRows - 1, totalCols);
+    dataRange.setVerticalAlignment("middle");
+
+    // Canh giữa cột STT (Cột 1)
+    sheet.getRange(2, 1, totalRows - 1, 1).setHorizontalAlignment("center");
+
+    // Xử lý cảnh báo lệch âm cho Tab 3 (Tab3_ChenhLech_PO)
+    if (sheetName.indexOf("Tab3") !== -1 || (sheetKey && sheetKey.indexOf("Tab3") !== -1)) {
+      highlightNegativeDiscrepancies(sheet, headers, totalRows, totalCols);
+    }
+  }
+
+  // 3. Tự động căn chỉnh độ rộng cột thông minh
   for (let c = 1; c <= totalCols; c++) {
     sheet.autoResizeColumn(c);
     const w = sheet.getColumnWidth(c);
-    if (w < 80) sheet.setColumnWidth(c, 80);
-    if (w > 260) sheet.setColumnWidth(c, 260);
+    if (w < 75) sheet.setColumnWidth(c, 75);
+    if (w > 280) sheet.setColumnWidth(c, 280);
+  }
+}
+
+/**
+ * Tự động bôi màu đỏ cảnh báo cho các ô số âm (Khách giao thiếu) trong Tab 3 Chênh Lệch
+ */
+function highlightNegativeDiscrepancies(sheet, headers, totalRows, totalCols) {
+  try {
+    const dataValues = sheet.getRange(2, 1, totalRows - 1, totalCols).getValues();
+
+    for (let r = 0; r < dataValues.length; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        const cellVal = dataValues[r][c];
+        const rowNum = r + 2;
+        const colNum = c + 1;
+
+        // Nếu là số âm hoặc chữ CẦN BÙ
+        if (typeof cellVal === "number" && cellVal < 0) {
+          const cell = sheet.getRange(rowNum, colNum);
+          cell.setBackground("#fee2e2"); // Đỏ nhạt
+          cell.setFontColor("#b91c1c"); // Đỏ đậm
+          cell.setFontWeight("bold");
+        } else if (typeof cellVal === "string" && (cellVal.indexOf("CẦN BÙ") !== -1 || cellVal.indexOf("Thiếu") !== -1)) {
+          const cell = sheet.getRange(rowNum, colNum);
+          cell.setBackground("#fee2e2");
+          cell.setFontColor("#991b1b");
+          cell.setFontWeight("bold");
+        } else if (typeof cellVal === "string" && (cellVal.indexOf("Khớp đủ") !== -1 || cellVal.indexOf("Đã đủ") !== -1)) {
+          const cell = sheet.getRange(rowNum, colNum);
+          cell.setBackground("#dcfce7"); // Xanh lá nhạt
+          cell.setFontColor("#15803d");
+          cell.setFontWeight("bold");
+        }
+      }
+    }
+  } catch (err) {
+    // Không làm gián đoạn tiến trình nếu có lỗi định dạng màu
   }
 }
 
@@ -204,6 +260,8 @@ function updateBackupLogSheet(spreadsheet, companyName, timestamp, sheetCount) {
     hRange.setFontColor("#ffffff");
     hRange.setFontWeight("bold");
     hRange.setHorizontalAlignment("center");
+    hRange.setVerticalAlignment("middle");
+    sheet.setRowHeight(1, 30);
     sheet.setFrozenRows(1);
   }
 
@@ -231,4 +289,63 @@ function cleanupDefaultSheet(spreadsheet) {
 function createJsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * HÀM CHẠY THỬ TRỰC TIẾP TRONG GOOGLE APPS SCRIPT EDITOR:
+ * Chọn hàm "testKhoiTaoVaSaoLuu" rồi bấm "Chạy" (Run) để kiểm tra tạo file mẫu thành công 100%!
+ */
+function testKhoiTaoVaSaoLuu() {
+  const testPayload = {
+    companyId: "test-dw",
+    companyName: "Deawoong (DW) - Chạy Thử",
+    timestamp: new Date().toLocaleString("vi-VN"),
+    sheets: {
+      "01_DonHang_PO": {
+        title: "01_DonHang_PO",
+        themeColor: "#1e3a8a",
+        headers: ["STT", "Mã PO", "Style / Tên Hàng", "Ngày Đặt", "ĐVT", "Size 4", "Size 5", "Size 6", "Size 7", "Tổng SL Đặt", "Ghi Chú"],
+        rows: [
+          [1, "PO-101", "Giày Da Nam Cao Cấp", "01/09/2026", "PRS", 10, 15, 20, 15, 60, "Đơn xuất khẩu"],
+          [2, "PO-102", "Giày Thể Thao Mẫu Mới", "02/09/2026", "PRS", 20, 30, 20, 10, 80, "Gấp"]
+        ]
+      },
+      "Tab1_KeHoachNhap": {
+        title: "Tab1_KeHoachNhap",
+        themeColor: "#0284c7",
+        headers: ["STT", "Ngày Nhận", "Mã PO", "Code Vật Tư", "Trạng Thái", "Số Phiếu Giao", "Quy Cách / Diễn Giải", "ĐVT", "Size 4", "Size 5", "Size 6", "Size 7", "Tổng Kế Hoạch", "Ghi Chú"],
+        rows: [
+          [1, "01/09/2026", "PO-101", "VT-DA-01", "Hàng đơn", "PX-001", "Da bò thuộc cao cấp", "PRS", 10, 15, 20, 15, 60, "Đơn gốc"],
+          [2, "02/09/2026", "PO-101", "VT-DA-01", "Hàng bù", "PX-002", "Da bò thuộc cấp bù đợt 1", "PRS", 0, 2, 0, 0, 2, "Bù thiếu"]
+        ]
+      },
+      "Tab2_ThucNhan": {
+        title: "Tab2_ThucNhan",
+        themeColor: "#059669",
+        headers: ["STT", "Ngày Nhận", "Mã PO", "Code Vật Tư", "Trạng Thái", "Số Phiếu KH", "Diễn Giải", "ĐVT", "Size 4", "Size 5", "Size 6", "Size 7", "Tổng Thực Nhận", "SL Trên Phiếu", "Ghi Chú"],
+        rows: [
+          [1, "01/09/2026", "PO-101", "VT-DA-01", "Hàng đơn", "PX-001", "Da bò thuộc cao cấp", "PRS", 10, 13, 20, 15, 58, 60, "Thiếu 2 đôi size 5"],
+          [2, "02/09/2026", "PO-101", "VT-DA-01", "Hàng bù", "PX-002", "Da bò thuộc cấp bù đợt 1", "PRS", 0, 2, 0, 0, 2, 2, "Đã nhận bù đủ"]
+        ]
+      },
+      "Tab3_ChenhLech_PO": {
+        title: "Tab3_ChenhLech_PO",
+        themeColor: "#ea580c",
+        headers: ["STT", "Ngày Nhập", "Mã PO", "Code Vật Tư", "Trạng Thái PO", "Số Phiếu KH", "Diễn Giải", "ĐVT", "Lệch Size 4", "Lệch Size 5", "Lệch Size 6", "Lệch Size 7", "Tổng Chênh Lệch", "Cần Bù? [X]", "SL Đơn Gốc", "Đã Nhận Bù", "Tổng Đã Nhận"],
+        rows: [
+          [1, "01/09/2026", "PO-101", "VT-DA-01", "Khớp đủ", "PX-001, PX-002", "Da bò thuộc cao cấp", "PRS", 0, 0, 0, 0, 0, "Đủ", 60, 2, 60],
+          [2, "02/09/2026", "PO-102", "VT-DE-02", "Thiếu cần bù", "PX-003", "Đế cao su lưu hóa", "PRS", 0, -2, 0, 0, -2, "CẦN BÙ [X]", 80, 0, 78]
+        ]
+      }
+    }
+  };
+
+  const fakeEvent = {
+    postData: {
+      contents: JSON.stringify(testPayload)
+    }
+  };
+
+  const response = doPost(fakeEvent);
+  Logger.log("Kết quả chạy thử: " + response.getContent());
 }

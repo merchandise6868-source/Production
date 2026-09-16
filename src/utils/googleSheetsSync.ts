@@ -82,7 +82,7 @@ export function buildCompanySheetsPayload(
   });
 
   // 2. Sheet 02: Tab 1 - Số Trên Phiếu
-  const tab1Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Trạng Thái', 'Số Phiếu', 'Quy Cách', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Kế Hoạch', 'Ghi Chú'];
+  const tab1Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Trạng Thái', 'Số Phiếu Giao', 'Quy Cách / Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Kế Hoạch', 'Ghi Chú'];
   const tab1Rows = planOrders.map((p, idx) => [
     idx + 1,
     p.receiptDate,
@@ -98,25 +98,31 @@ export function buildCompanySheetsPayload(
   ]);
 
   // 3. Sheet 03: Tab 2 - Số Thực Nhận
-  const tab2Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Trạng Thái', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Thực Nhận', 'Ghi Chú'];
-  const tab2Rows = actualReceives.map((a, idx) => [
-    idx + 1,
-    a.receiptDate || '',
-    a.poNumber || '',
-    a.itemCode || '',
-    a.status || 'Hàng đơn',
-    a.voucherCode || '',
-    a.description || '',
-    a.unit || 'PRS',
-    ...currentSizes.map((s) => a.sizeQuantities?.[s] ?? 0),
-    a.totalQty,
-    a.note || '',
-  ]);
+  const tab2Headers = ['STT', 'Ngày Nhận', 'Mã PO', 'Code Vật Tư', 'Trạng Thái', 'Số Phiếu KH', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng Thực Nhận', 'SL Trên Phiếu', 'Ghi Chú'];
+  const tab2Rows = actualReceives.map((a, idx) => {
+    const matchedPlan = planOrders.find((p) => p.id === a.planOrderId || (p.poNumber?.trim().toUpperCase() === (a.poNumber || '').trim().toUpperCase() && p.itemCode?.trim().toUpperCase() === (a.itemCode || '').trim().toUpperCase()));
+    const planTotal = matchedPlan ? matchedPlan.totalQty : '';
+    return [
+      idx + 1,
+      a.receiptDate || '',
+      a.poNumber || '',
+      a.itemCode || '',
+      a.status || 'Hàng đơn',
+      a.voucherCode || '',
+      a.description || '',
+      a.unit || 'PRS',
+      ...currentSizes.map((s) => a.sizeQuantities?.[s] ?? 0),
+      a.totalQty,
+      planTotal,
+      a.note || '',
+    ];
+  });
 
   // 4. Sheet 04: Tab 3 - Bảng Chênh Lệch Gom Theo PO
-  const tab3Headers = ['STT', 'Mã PO', 'Code Vật Tư', 'Trạng Thái PO', 'Số Phiếu', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Lệch Size ' + s), 'Tổng Chênh Lệch', 'Cần Bù?', 'SL Đơn Gốc', 'Đã Nhận Bù', 'Tổng Thực Nhận'];
+  const tab3Headers = ['STT', 'Ngày Nhập', 'Mã PO', 'Code Vật Tư', 'Trạng Thái PO', 'Số Phiếu KH', 'Diễn Giải', 'ĐVT', ...currentSizes.map((s) => 'Lệch Size ' + s), 'Tổng Chênh Lệch', 'Cần Bù? [X]', 'SL Đơn Gốc', 'Đã Nhận Bù', 'Tổng Đã Nhận'];
   const tab3Rows = discrepancies.map((d, idx) => [
     idx + 1,
+    d.receiptDate || '',
     d.poNumber,
     d.itemCode,
     d.statusText || (d.hasNegative ? 'Thiếu cần bù' : d.totalDiff > 0 ? 'Giao thừa' : 'Khớp đủ'),

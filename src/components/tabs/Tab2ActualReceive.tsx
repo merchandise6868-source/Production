@@ -691,13 +691,13 @@ export const Tab2ActualReceive: React.FC = () => {
       'Ngày Nhận',
       'Mã PO',
       'Code Vật tư',
+      'Trạng Thái',
       'Số Phiếu KH',
       'Diễn Giải',
       'ĐVT',
       ...sizes.map((s) => `Size ${s}`),
       'Tổng Thực Nhận',
       'SL Phiếu',
-      'Trạng Thái',
       'Ghi Chú',
     ];
 
@@ -706,13 +706,13 @@ export const Tab2ActualReceive: React.FC = () => {
       r.receiptDate,
       r.poNumber,
       r.itemCode,
+      r.status || 'Hàng đơn',
       r.voucherCode,
       r.description,
       r.unit,
       ...sizes.map((s) => (typeof r.sizeQuantities[s] === 'number' ? r.sizeQuantities[s] : 0)),
       getRowActualTotal(r),
       r.planTotalQty > 0 ? r.planTotalQty : 0,
-      r.status || 'Hàng đơn',
       r.note || '',
     ]);
 

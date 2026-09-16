@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useInventory } from '../../context/InventoryContext';
 import {
   X,
@@ -72,6 +73,28 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
     logs: string[];
   } | null>(null);
 
+  // Khóa cuộn trang nền khi modal đang mở
+  useEffect(() => {
+    if (isOpen) {
+      const origOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = origOverflow;
+      };
+    }
+  }, [isOpen]);
+
+  // Phím Esc để đóng modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const sizes = activeSizeRun?.sizes && activeSizeRun.sizes.length > 0
@@ -114,32 +137,38 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
   // Copy Google Apps Script code
   const handleCopyScriptCode = () => {
     const scriptCode = `/**
- * GOOGLE APPS SCRIPT: MASTER HUB SAO LƯU DỮ LIỆU KHO ĐA CÔNG TY
+ * ==============================================================================
+ * GOOGLE APPS SCRIPT: MASTER HUB SAO LƯU DỮ LIỆU KHO ĐA CÔNG TY (CHUẨN 10 SHEETS)
  * DỰ ÁN: HỆ THỐNG QUẢN LÝ KHO SẢN XUẤT - D&D LONG AN
+ * ==============================================================================
  */
 const ROOT_FOLDER_NAME = "HỆ THỐNG KHO D&D LONG AN - DỮ LIỆU SAO LƯU";
 
 function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
     status: "ok",
-    message: "Google Apps Script Master Hub đang hoạt động bình thường!"
+    service: "Master Hub Backup Kho D&D Long An",
+    version: "2.0 - Trình tự cột chuẩn hóa",
+    timestamp: new Date().toLocaleString("vi-VN"),
+    message: "Google Apps Script Web App Master Hub đang hoạt động hoàn hảo!"
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
-      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Dữ liệu rỗng" })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Dữ liệu payload trống!" })).setMimeType(ContentService.MimeType.JSON);
     }
     const payload = JSON.parse(e.postData.contents);
-    const companyName = payload.companyName || "Công Ty";
+    const companyId = payload.companyId || "default";
+    const companyName = (payload.companyName || "Công Ty").trim();
     const sheetsData = payload.sheets || {};
     const timestamp = payload.timestamp || new Date().toLocaleString("vi-VN");
 
     const folders = DriveApp.getFoldersByName(ROOT_FOLDER_NAME);
     const targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(ROOT_FOLDER_NAME);
 
-    const fileName = "[KHO] - Báo Cáo - " + companyName.trim();
+    const fileName = "[KHO] - Báo Cáo - " + companyName;
     const files = targetFolder.getFilesByName(fileName);
     let spreadsheet;
     if (files.hasNext()) {
@@ -164,14 +193,14 @@ function doPost(e) {
 
       const allData = [];
       if (headers.length > 0) allData.push(headers);
-      rows.forEach(r => allData.push(r));
+      rows.forEach(function(r) { allData.push(r); });
 
       if (allData.length > 0) {
         const totalRows = allData.length;
-        const totalCols = Math.max.apply(null, allData.map(r => r.length));
-        const normalized = allData.map(row => {
+        const totalCols = Math.max.apply(null, allData.map(function(r) { return r.length; }).concat([headers.length]));
+        const normalized = allData.map(function(row) {
           const nr = new Array(totalCols).fill("");
-          row.forEach((v, i) => { nr[i] = (v === null || v === undefined) ? "" : v; });
+          row.forEach(function(v, i) { nr[i] = (v === null || v === undefined) ? "" : v; });
           return nr;
         });
         const range = sheet.getRange(1, 1, totalRows, totalCols);
@@ -186,16 +215,70 @@ function doPost(e) {
           hRange.setFontColor("#ffffff");
           hRange.setFontWeight("bold");
           hRange.setHorizontalAlignment("center");
+          hRange.setVerticalAlignment("middle");
+          sheet.setRowHeight(1, 32);
           sheet.setFrozenRows(1);
         }
+
+        if (totalRows > 1) {
+          sheet.getRange(2, 1, totalRows - 1, totalCols).setVerticalAlignment("middle");
+          sheet.getRange(2, 1, totalRows - 1, 1).setHorizontalAlignment("center");
+
+          // Tự động bôi đỏ cảnh báo lệch âm Tab 3
+          if (sheetName.indexOf("Tab3") !== -1 || sheetKey.indexOf("Tab3") !== -1) {
+            try {
+              const vals = sheet.getRange(2, 1, totalRows - 1, totalCols).getValues();
+              for (let r = 0; r < vals.length; r++) {
+                for (let c = 0; c < totalCols; c++) {
+                  const val = vals[r][c];
+                  if (typeof val === "number" && val < 0) {
+                    const cell = sheet.getRange(r + 2, c + 1);
+                    cell.setBackground("#fee2e2");
+                    cell.setFontColor("#b91c1c");
+                    cell.setFontWeight("bold");
+                  } else if (typeof val === "string" && (val.indexOf("CẦN BÙ") !== -1 || val.indexOf("Thiếu") !== -1)) {
+                    const cell = sheet.getRange(r + 2, c + 1);
+                    cell.setBackground("#fee2e2");
+                    cell.setFontColor("#991b1b");
+                    cell.setFontWeight("bold");
+                  } else if (typeof val === "string" && (val.indexOf("Khớp đủ") !== -1 || val.indexOf("Đã đủ") !== -1)) {
+                    const cell = sheet.getRange(r + 2, c + 1);
+                    cell.setBackground("#dcfce7");
+                    cell.setFontColor("#15803d");
+                    cell.setFontWeight("bold");
+                  }
+                }
+              }
+            } catch (err) {}
+          }
+        }
+
         for (let c = 1; c <= totalCols; c++) {
           sheet.autoResizeColumn(c);
-          if (sheet.getColumnWidth(c) < 80) sheet.setColumnWidth(c, 80);
-          if (sheet.getColumnWidth(c) > 260) sheet.setColumnWidth(c, 260);
+          if (sheet.getColumnWidth(c) < 75) sheet.setColumnWidth(c, 75);
+          if (sheet.getColumnWidth(c) > 280) sheet.setColumnWidth(c, 280);
         }
       }
       updatedSheetNames.push(sheetName);
     }
+
+    // Ghi nhật ký
+    const logName = "NhatKy_SaoLuu";
+    let logSheet = spreadsheet.getSheetByName(logName);
+    if (!logSheet) {
+      logSheet = spreadsheet.insertSheet(logName);
+      logSheet.getRange(1, 1, 1, 4).setValues([["STT", "Thời Gian Sao Lưu", "Công Ty", "Số Sheets Đồng Bộ"]]);
+      const lh = logSheet.getRange(1, 1, 1, 4);
+      lh.setBackground("#334155");
+      lh.setFontColor("#ffffff");
+      lh.setFontWeight("bold");
+      lh.setHorizontalAlignment("center");
+      logSheet.setRowHeight(1, 30);
+      logSheet.setFrozenRows(1);
+    }
+    const lastRow = logSheet.getLastRow();
+    logSheet.appendRow([lastRow, timestamp, companyName, updatedSheetNames.length + " Sheets"]);
+    logSheet.autoResizeColumns(1, 4);
 
     const defaultS = spreadsheet.getSheetByName("Sheet1") || spreadsheet.getSheetByName("Trang tính 1");
     if (defaultS && spreadsheet.getSheets().length > 1) {
@@ -204,7 +287,7 @@ function doPost(e) {
 
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
-      message: "Đã sao lưu thành công " + updatedSheetNames.length + " sheet",
+      message: "Đã sao lưu thành công " + updatedSheetNames.length + " sheet cho công ty " + companyName,
       companyId: payload.companyId,
       companyName: companyName,
       spreadsheetId: spreadsheet.getId(),
@@ -355,9 +438,15 @@ function doPost(e) {
     toast(`🚀 Đã hoàn tất sao lưu: Thành công ${successCount}/${customers.length} công ty!`);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden relative z-[100000]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="p-4 bg-gradient-to-r from-emerald-700 via-teal-700 to-indigo-800 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -651,6 +740,7 @@ function doPost(e) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
