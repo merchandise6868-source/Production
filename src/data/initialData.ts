@@ -9,6 +9,8 @@ import {
   ActualReceiveRow,
   ProductionIssueRow,
   ProductionReportRow,
+  GeneralInboundSlip,
+  GeneralOutboundSlip,
 } from '../types';
 
 export const INITIAL_CUSTOMERS: Customer[] = [
@@ -58,6 +60,20 @@ export const INITIAL_CUSTOMERS: Customer[] = [
       },
     ],
     activeSizeRunId: 'sr-cs-numeric',
+  },
+  {
+    id: 'cust-chung',
+    code: 'CHUNG',
+    name: 'Kho Chung (Nội Bộ D&D)',
+    note: 'Quản lý kho nội bộ: Công cụ dụng cụ, Vật tư sản xuất & Thiết bị máy móc',
+    sizeRuns: [
+      {
+        id: 'sr-chung-standard',
+        name: 'Quản Lý Theo ĐVT (Cái, Bộ, Mét, Kg, Hộp, Cây...)',
+        sizes: [],
+      },
+    ],
+    activeSizeRunId: 'sr-chung-standard',
   },
 ];
 
@@ -648,4 +664,166 @@ export const INITIAL_PRODUCTION_REPORTS: ProductionReportRow[] = [
     note: 'Chuyền 1 làm hỏng 3 đôi size 7 do chỉnh nhiệt máy ép, kho đã xuất bù',
   },
 ];
+
+// ============================================================================
+// DỮ LIỆU MẪU KHO CHUNG (NỘI BỘ D&D)
+// ============================================================================
+
+export const INITIAL_GENERAL_INBOUND_SLIPS: GeneralInboundSlip[] = [
+  {
+    id: 'gen-in-01',
+    slipNumber: 'PNK-2609-01',
+    date: '10/09/2026',
+    items: [
+      {
+        id: 'gen-in-item-01',
+        itemCode: 'VT-KEO-01',
+        itemName: 'Keo dán đế PuBond chuyên dụng',
+        unit: 'Thùng',
+        quantity: 50,
+        unitPrice: 450000,
+        totalAmount: 22500000,
+        receiver: 'Hà',
+        department: 'Kho',
+        note: 'Keo dán đế PuBond nhập khẩu chính hãng',
+      },
+      {
+        id: 'gen-in-item-02',
+        itemCode: 'CC-KEO-CAT',
+        itemName: 'Kéo cắt chỉ may công nghiệp',
+        unit: 'Cái',
+        quantity: 100,
+        unitPrice: 35000,
+        totalAmount: 3500000,
+        receiver: 'Hà',
+        department: 'Kho',
+        note: 'Kéo thép trắng không gỉ chất lượng cao',
+      },
+      {
+        id: 'gen-in-item-03',
+        itemCode: 'TB-KIM-MAY',
+        itemName: 'Kim may công nghiệp Groz-Beckert',
+        unit: 'Hộp',
+        quantity: 80,
+        unitPrice: 120000,
+        totalAmount: 9600000,
+        receiver: 'Hà',
+        department: 'Kho',
+        note: 'Hộp 100 cây kim size 14-16',
+      },
+      {
+        id: 'gen-in-item-04',
+        itemCode: 'CC-GANG-TAY',
+        itemName: 'Găng tay sợi dệt phủ cao su',
+        unit: 'Đôi',
+        quantity: 200,
+        unitPrice: 15000,
+        totalAmount: 3000000,
+        receiver: 'Hà',
+        department: 'Kho',
+        note: 'Đồ bảo hộ công nhân chuyền gò ráp',
+      },
+    ],
+    totalQty: 430,
+    totalAmount: 38600000,
+    createdAt: '10/09/2026 08:30',
+    updatedAt: '10/09/2026 08:30',
+  },
+];
+
+export const INITIAL_GENERAL_OUTBOUND_SLIPS: GeneralOutboundSlip[] = [
+  {
+    id: 'gen-out-01',
+    slipNumber: 'PXK-2609-01',
+    date: '11/09/2026',
+    items: [
+      {
+        id: 'gen-out-item-01',
+        itemCode: 'CC-KEO-CAT',
+        itemName: 'Kéo cắt chỉ may công nghiệp',
+        group: 'Công cụ dụng cụ',
+        unit: 'Cái',
+        quantity: 20,
+        receiver: 'Nguyễn Thị Mai',
+        department: 'Tổ May 1',
+        purpose: 'Cấp mới cho thợ may chuyền 1',
+        note: 'Bàn giao theo biên bản',
+      },
+      {
+        id: 'gen-out-item-02',
+        itemCode: 'VT-KEO-01',
+        itemName: 'Keo dán đế PuBond chuyên dụng',
+        group: 'Vật tư sản xuất',
+        unit: 'Thùng',
+        quantity: 15,
+        receiver: 'Trần Văn Long',
+        department: 'Tổ Quét Keo',
+        purpose: 'Quét keo dán đế đơn hàng xuất khẩu',
+        note: 'Xuất cấp đợt 1',
+      },
+      {
+        id: 'gen-out-item-03',
+        itemCode: 'CC-GANG-TAY',
+        itemName: 'Găng tay sợi dệt phủ cao su',
+        group: 'Công cụ dụng cụ',
+        unit: 'Đôi',
+        quantity: 50,
+        receiver: 'Lê Hoàng Nam',
+        department: 'Chuyền Gò',
+        purpose: 'Bảo hộ lao động định kỳ',
+        note: 'Cấp phát tuần 2 tháng 9',
+      },
+    ],
+    totalQty: 85,
+    createdAt: '11/09/2026 09:30',
+    updatedAt: '11/09/2026 09:30',
+  },
+  {
+    id: 'gen-out-02',
+    slipNumber: 'PXK-2609-02',
+    date: '12/09/2026',
+    items: [
+      {
+        id: 'gen-out-item-04',
+        itemCode: 'CC-KEO-CAT',
+        itemName: 'Kéo cắt chỉ may công nghiệp',
+        group: 'Công cụ dụng cụ',
+        unit: 'Cái',
+        quantity: 10,
+        receiver: 'Hoàng Thị Thắm',
+        department: 'Tổ May 2',
+        purpose: 'Cấp bổ sung thợ mới chuyền may 2',
+        note: 'Cấp theo phiếu đề xuất số 08',
+      },
+      {
+        id: 'gen-out-item-05',
+        itemCode: 'VT-KEO-01',
+        itemName: 'Keo dán đế PuBond chuyên dụng',
+        group: 'Vật tư sản xuất',
+        unit: 'Thùng',
+        quantity: 10,
+        receiver: 'Trần Văn Long',
+        department: 'Tổ Quét Keo',
+        purpose: 'Tiếp tục sản xuất ca 2',
+        note: 'Xuất cấp đợt 2',
+      },
+      {
+        id: 'gen-out-item-06',
+        itemCode: 'TB-KIM-MAY',
+        itemName: 'Kim may công nghiệp Groz-Beckert',
+        group: 'Thiết bị máy móc',
+        unit: 'Hộp',
+        quantity: 15,
+        receiver: 'Phạm Đức Dũng',
+        department: 'Tổ Cơ Điện Bảo Trì',
+        purpose: 'Thay kim máy may vắt sổ & may trụ',
+        note: 'Bảo dưỡng định kỳ máy móc xưởng',
+      },
+    ],
+    totalQty: 35,
+    createdAt: '12/09/2026 14:15',
+    updatedAt: '12/09/2026 14:15',
+  },
+];
+
 

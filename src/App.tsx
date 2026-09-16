@@ -11,6 +11,9 @@ import { Tab6RealtimeStock } from './components/tabs/Tab6RealtimeStock';
 import { Tab7ProductionReport } from './components/tabs/Tab7ProductionReport';
 import { Tab8FinishedGoods } from './components/tabs/Tab8FinishedGoods';
 import { Tab8MasterSummary } from './components/tabs/Tab8MasterSummary';
+import { GeneralInboundTab } from './components/tabs/general/GeneralInboundTab';
+import { GeneralOutboundTab } from './components/tabs/general/GeneralOutboundTab';
+import { GeneralInventoryTab } from './components/tabs/general/GeneralInventoryTab';
 import { MessageBoxProvider } from './components/common/MessageBox';
 import { LoginPage } from './components/auth/LoginPage';
 import { useInventory } from './context/InventoryContext';
@@ -71,13 +74,15 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 }
 
 export const AppContent: React.FC = () => {
-  const { isAuthenticated, login } = useInventory();
-  const [activeTab, setActiveTab] = useState<number>(1); // Default to Tab 1: Số Trên Phiếu
+  const { isAuthenticated, login, selectedCustomerId } = useInventory();
+  const [activeTab, setActiveTab] = useState<number>(1); // Default to Tab 1: Số Trên Phiếu / Phiếu Nhập Kho
 
   // Nếu chưa đăng nhập hoặc chưa có phiên thiết bị hợp lệ -> Hiển thị trang Login
   if (!isAuthenticated) {
     return <LoginPage onLoginSuccess={(user) => login(user)} />;
   }
+
+  const isGeneralWarehouse = selectedCustomerId === 'cust-chung';
 
   return (
     <div className="min-h-screen flex bg-slate-100 text-slate-900 overflow-hidden">
@@ -89,17 +94,29 @@ export const AppContent: React.FC = () => {
         {/* Thanh Tab Ngang Ở Trên Cùng Vùng Bên Phải */}
         <HorizontalTabs activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {/* Nội Dung Phân Hệ Đang Chọn Theo SRS */}
+        {/* Nội Dung Phân Hệ Đang Chọn */}
         <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">
-          {activeTab === 0 && <CustomerTab />}
-          {activeTab === 1 && <Tab1PlanOrder />}
-          {activeTab === 2 && <Tab2ActualReceive />}
-          {activeTab === 3 && <Tab3Discrepancy />}
-          {activeTab === 5 && <Tab5ProductionIssue />}
-          {activeTab === 6 && <Tab6RealtimeStock />}
-          {activeTab === 7 && <Tab7ProductionReport />}
-          {activeTab === 8 && <Tab8FinishedGoods />}
-          {activeTab === 9 && <Tab8MasterSummary />}
+          {/* NẾU LÀ KHO CHUNG (NỘI BỘ D&D): CHỈ RENDER 3 TAB CHÍNH (HÌNH 1, 2, 3) */}
+          {isGeneralWarehouse ? (
+            <>
+              {activeTab === 1 && <GeneralInboundTab />}
+              {activeTab === 2 && <GeneralOutboundTab />}
+              {activeTab === 3 && <GeneralInventoryTab />}
+            </>
+          ) : (
+            /* CÁC CÔNG TY GIA CÔNG KHÁC (DEAWOONG, LIÊN THÁI, CHANGSHIN): GIỮ NGUYÊN 100% 9 TAB HIỆN CÓ */
+            <>
+              {activeTab === 0 && <CustomerTab />}
+              {activeTab === 1 && <Tab1PlanOrder />}
+              {activeTab === 2 && <Tab2ActualReceive />}
+              {activeTab === 3 && <Tab3Discrepancy />}
+              {activeTab === 5 && <Tab5ProductionIssue />}
+              {activeTab === 6 && <Tab6RealtimeStock />}
+              {activeTab === 7 && <Tab7ProductionReport />}
+              {activeTab === 8 && <Tab8FinishedGoods />}
+              {activeTab === 9 && <Tab8MasterSummary />}
+            </>
+          )}
         </main>
 
         {/* Chân Trang */}

@@ -86,26 +86,45 @@ export const Sidebar: React.FC = () => {
         <div className="space-y-1.5">
           <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-sky-600" />
-            <span>DẢI SIZE HOẠT ĐỘNG</span>
+            <span>{selectedCustomerId === 'cust-chung' ? 'QUY CÁCH QUẢN LÝ' : 'DẢI SIZE HOẠT ĐỘNG'}</span>
           </label>
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="text-xs font-semibold text-slate-800">
-              {activeSizeRun ? activeSizeRun.name : 'Chưa thiết lập'}
-            </div>
-            <div className="text-[11px] font-mono text-slate-500 flex flex-wrap gap-1 mt-1">
-              {activeSizeRun && activeSizeRun.sizes && activeSizeRun.sizes.length > 0 ? (
-                activeSizeRun.sizes.map((s) => (
-                  <span
-                    key={s}
-                    className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-700 font-bold"
-                  >
-                    {s}
-                  </span>
-                ))
-              ) : (
-                <span className="italic text-slate-400">4, 5, 6, 7, 8, 9, 10, 11, 12</span>
-              )}
-            </div>
+            {selectedCustomerId === 'cust-chung' ? (
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                  <span>Kho Nội Bộ D&amp;D</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-tight">
+                  Quản lý theo ĐVT (Cái, Bộ, Mét, Thùng, Hộp, Cuộn, Kg...)
+                </p>
+                <div className="flex flex-wrap gap-1 mt-1 text-[10px] font-semibold text-slate-700">
+                  <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-sky-800">Công cụ</span>
+                  <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-emerald-800">Vật tư</span>
+                  <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-indigo-800">Máy móc</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-xs font-semibold text-slate-800">
+                  {activeSizeRun ? activeSizeRun.name : 'Chưa thiết lập'}
+                </div>
+                <div className="text-[11px] font-mono text-slate-500 flex flex-wrap gap-1 mt-1">
+                  {activeSizeRun && activeSizeRun.sizes && activeSizeRun.sizes.length > 0 ? (
+                    activeSizeRun.sizes.map((s) => (
+                      <span
+                        key={s}
+                        className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-700 font-bold"
+                      >
+                        {s}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="italic text-slate-400">4, 5, 6, 7, 8, 9, 10, 11, 12</span>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 

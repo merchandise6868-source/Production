@@ -18,6 +18,8 @@ import {
   RealtimeStockItem,
   FinishedGoodsDeliveryRow,
   FinishedGoodsStockItem,
+  GeneralInboundSlip,
+  GeneralOutboundSlip,
 } from '../types';
 import {
   INITIAL_CUSTOMERS,
@@ -30,6 +32,8 @@ import {
   INITIAL_ACTUAL_RECEIVES,
   INITIAL_PRODUCTION_ISSUES,
   INITIAL_PRODUCTION_REPORTS,
+  INITIAL_GENERAL_INBOUND_SLIPS,
+  INITIAL_GENERAL_OUTBOUND_SLIPS,
 } from '../data/initialData';
 import { isDateInRange } from '../utils/dateUtils';
 import { buildCompanySheetsPayload, sendCompanyBackupToGoogleSheets } from '../utils/googleSheetsSync';
@@ -162,6 +166,14 @@ interface InventoryContextType {
   setIsAutoBackupEnabled: (enabled: boolean) => void;
   lastAutoBackupTime: string | null;
 
+  // PHÂN HỆ KHO CHUNG (NỘI BỘ D&D)
+  generalInboundSlips: GeneralInboundSlip[];
+  saveGeneralInboundSlip: (slip: GeneralInboundSlip) => void;
+  deleteGeneralInboundSlip: (id: string) => void;
+  generalOutboundSlips: GeneralOutboundSlip[];
+  saveGeneralOutboundSlip: (slip: GeneralOutboundSlip) => void;
+  deleteGeneralOutboundSlip: (id: string) => void;
+
   resetAllData: () => void;
 }
 
@@ -178,7 +190,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const [customers, setCustomers] = useState<Customer[]>(() => loadStored('customers', INITIAL_CUSTOMERS));
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    const loaded = loadStored<Customer[]>('customers', INITIAL_CUSTOMERS);
+    const hasChung = loaded.some((c) => c.id === 'cust-chung');
+    if (!hasChung) {
+      const chungCust = INITIAL_CUSTOMERS.find((c) => c.id === 'cust-chung');
+      if (chungCust) {
+        return [...loaded, chungCust];
+      }
+    }
+    return loaded;
+  });
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => {
     const saved = loadStored('selectedCustomerId', 'cust-deawoong');
     return customers.some(c => c.id === saved) ? saved : customers[0]?.id || 'cust-deawoong';
@@ -226,6 +248,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
   const [supplementalMaterialStock, setSupplementalMaterialStock] = useState<Record<string, Record<string, number>>>(() =>
     loadStored('supplementalMaterialStock', {})
+  );
+
+  // PHÂN HỆ KHO CHUNG (NỘI BỘ D&D)
+  const [generalInboundSlips, setGeneralInboundSlips] = useState<GeneralInboundSlip[]>(() =>
+    loadStored('general_inbound_slips', INITIAL_GENERAL_INBOUND_SLIPS)
+  );
+  const [generalOutboundSlips, setGeneralOutboundSlips] = useState<GeneralOutboundSlip[]>(() =>
+    loadStored('general_outbound_slips', INITIAL_GENERAL_OUTBOUND_SLIPS)
   );
 
   // Google Sheets Backup Webhook URL state
@@ -378,6 +408,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     localStorage.setItem('dd_inventory_supplementalMaterialStock', JSON.stringify(supplementalMaterialStock));
   }, [supplementalMaterialStock]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_general_inbound_slips', JSON.stringify(generalInboundSlips));
+  }, [generalInboundSlips]);
+  useEffect(() => {
+    localStorage.setItem('dd_inventory_general_outbound_slips', JSON.stringify(generalOutboundSlips));
+  }, [generalOutboundSlips]);
 
   // Helper gửi yêu cầu đồng bộ lên Cloudflare D1
   const syncToApi = async (action: string, payload?: any) => {
@@ -653,6 +689,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setCompensationReceivedQuantities({});
     setCompensationStatusOverrides({});
     setSupplementalMaterialStock({});
+    setGeneralInboundSlips(INITIAL_GENERAL_INBOUND_SLIPS);
+    setGeneralOutboundSlips(INITIAL_GENERAL_OUTBOUND_SLIPS);
     localStorage.clear();
     syncToApi('RESET_ALL');
   };
@@ -1778,6 +1816,39 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     syncToApi('DELETE_FINISHED_GOODS_DELIVERY', { id });
   };
 
+  // PHÂN HỆ KHO CHUNG (NỘI BỘ D&D) HANDLERS
+  const saveGeneralInboundSlip = (slip: GeneralInboundSlip) => {
+    setGeneralInboundSlips((prev) => {
+      const exists = prev.some((s) => s.id === slip.id);
+      if (exists) {
+        return prev.map((s) => (s.id === slip.id ? slip : s));
+      }
+      return [slip, ...prev];
+    });
+    syncToApi('SAVE_GENERAL_INBOUND_SLIP', slip);
+  };
+
+  const deleteGeneralInboundSlip = (id: string) => {
+    setGeneralInboundSlips((prev) => prev.filter((s) => s.id !== id));
+    syncToApi('DELETE_GENERAL_INBOUND_SLIP', { id });
+  };
+
+  const saveGeneralOutboundSlip = (slip: GeneralOutboundSlip) => {
+    setGeneralOutboundSlips((prev) => {
+      const exists = prev.some((s) => s.id === slip.id);
+      if (exists) {
+        return prev.map((s) => (s.id === slip.id ? slip : s));
+      }
+      return [slip, ...prev];
+    });
+    syncToApi('SAVE_GENERAL_OUTBOUND_SLIP', slip);
+  };
+
+  const deleteGeneralOutboundSlip = (id: string) => {
+    setGeneralOutboundSlips((prev) => prev.filter((s) => s.id !== id));
+    syncToApi('DELETE_GENERAL_OUTBOUND_SLIP', { id });
+  };
+
   // ==========================================================================
   // BỘ LẬP LỊCH TỰ ĐỘNG SAO LƯU (11:00 TRƯA & 16:30 CHIỀU MỖI NGÀY)
   // Đặt ở cuối component sau khi tất cả state và useMemo đã khởi tạo hoàn tất
@@ -1797,6 +1868,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     currentCustomerCompensationItems,
     currentCustomerRealtimeStock,
     activeSizeRun,
+    generalInboundSlips,
+    generalOutboundSlips,
   });
 
   useEffect(() => {
@@ -1815,6 +1888,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       currentCustomerCompensationItems,
       currentCustomerRealtimeStock,
       activeSizeRun,
+      generalInboundSlips,
+      generalOutboundSlips,
     };
   });
 
@@ -1880,7 +1955,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             cStock,
             cReports,
             cFgStock,
-            cDeliveries
+            cDeliveries,
+            data.generalInboundSlips,
+            data.generalOutboundSlips
           );
 
           await sendCompanyBackupToGoogleSheets(data.googleSheetsWebhookUrl, payload);
@@ -2007,6 +2084,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isAutoBackupEnabled,
         setIsAutoBackupEnabled,
         lastAutoBackupTime,
+
+        // General Warehouse (Kho Chung)
+        generalInboundSlips,
+        saveGeneralInboundSlip,
+        deleteGeneralInboundSlip,
+        generalOutboundSlips,
+        saveGeneralOutboundSlip,
+        deleteGeneralOutboundSlip,
 
         resetAllData,
       }}

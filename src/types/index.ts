@@ -321,4 +321,90 @@ export interface FinishedGoodsStockItem {
   totalStock: number;
 }
 
+// ============================================================================
+// PHÂN HỆ KHO CHUNG (NỘI BỘ D&D) - PHIẾU NHẬP KHO, XUẤT KHO & TỒN KHO THEO LẦN
+// ============================================================================
+
+// Dòng chi tiết trên Phiếu Nhập Kho Chung (Hình 1)
+export interface GeneralInboundItem {
+  id: string;
+  itemCode: string;        // Mã hàng
+  itemName: string;        // Tên hàng hóa
+  unit: string;            // ĐVT (Cái, Bộ, Mét, Kg, Hộp, Cây...)
+  quantity: number;        // Số lượng
+  unitPrice: number;       // Đơn giá
+  totalAmount: number;     // Thành tiền (= Số lượng * Đơn giá)
+  receiver: string;        // Người nhập (mặc định "Hà")
+  department: string;      // Bộ phận nhập kho (mặc định "Kho")
+  note?: string;           // Ghi chú
+}
+
+// Phiếu Nhập Kho Chung (Hình 1)
+export interface GeneralInboundSlip {
+  id: string;
+  slipNumber: string;      // Mã số phiếu (Bắt buộc)
+  date: string;            // Ngày (Bắt buộc, DD/MM/YYYY)
+  items: GeneralInboundItem[];
+  totalQty: number;
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 3 nhóm phân loại vật tư xuất kho (Hình 2)
+export type GeneralItemGroup = 'Công cụ dụng cụ' | 'Vật tư sản xuất' | 'Thiết bị máy móc';
+
+// Dòng chi tiết trên Phiếu Xuất Kho Chung (Hình 2)
+export interface GeneralOutboundItem {
+  id: string;
+  itemCode: string;        // Mã hàng
+  itemName: string;        // Tên hàng hóa
+  group: GeneralItemGroup; // Nhóm: Công cụ dụng cụ | Vật tư sản xuất | Thiết bị máy móc
+  unit: string;            // ĐVT
+  quantity: number;        // Số lượng xuất
+  receiver: string;        // Người nhận
+  department: string;      // Bộ phận sử dụng
+  purpose: string;         // Mục đích sử dụng
+  note?: string;           // Ghi chú
+}
+
+// Phiếu Xuất Kho Chung (Hình 2)
+export interface GeneralOutboundSlip {
+  id: string;
+  slipNumber: string;      // Mã phiếu (Bắt buộc)
+  date: string;            // Ngày (Bắt buộc, DD/MM/YYYY)
+  items: GeneralOutboundItem[];
+  totalQty: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Dòng hiển thị thẻ kho chi tiết theo từng lần xuất (Hình 3)
+export interface GeneralStockCardRow {
+  stt: number;
+  itemName: string;        // Tên hàng hoá
+  inboundDate?: string;    // Ngày nhập
+  outboundDate?: string;   // Ngày xuất
+  exportSequence?: string; // Lần xuất ("Lần 1", "Lần 2", "Lần 3"...)
+  quantity: number;        // Số lượng
+  receiver?: string;       // Người nhận
+  purpose?: string;        // Mục đích sử dụng
+  note?: string;           // Ghi chú
+  type: 'INBOUND' | 'OUTBOUND';
+}
+
+// Bảng tổng hợp tồn kho chung (Tầng 1 Tab 3)
+export interface GeneralStockSummaryItem {
+  itemCode: string;
+  itemName: string;
+  group?: GeneralItemGroup;
+  unit: string;
+  totalInbound: number;
+  totalOutbound: number;
+  currentStock: number;
+  lastInboundDate?: string;
+  lastOutboundDate?: string;
+}
+
+
 

@@ -54,6 +54,8 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
     isAutoBackupEnabled,
     setIsAutoBackupEnabled,
     lastAutoBackupTime,
+    generalInboundSlips,
+    generalOutboundSlips,
   } = useInventory();
 
   const [inputUrl, setInputUrl] = useState(googleSheetsWebhookUrl || '');
@@ -336,7 +338,9 @@ function doPost(e) {
       cStock,
       cReports,
       cFgStock,
-      cDeliveries
+      cDeliveries,
+      generalInboundSlips,
+      generalOutboundSlips
     );
 
     const res = await sendCompanyBackupToGoogleSheets(activeUrl, payload);

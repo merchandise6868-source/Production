@@ -22,6 +22,7 @@ interface HorizontalTabsProps {
 
 export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setActiveTab }) => {
   const {
+    selectedCustomerId,
     currentCustomerPlanOrders,
     currentCustomerActualReceives,
     currentCustomerDiscrepancies,
@@ -30,7 +31,16 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
     currentCustomerRealtimeStock,
     currentCustomerProductionReports,
     currentCustomerFinishedGoodsStock,
+    generalInboundSlips,
+    generalOutboundSlips,
   } = useInventory();
+
+  // Tự động chuyển về Tab 1 nếu đang ở tab không thuộc Kho Chung
+  React.useEffect(() => {
+    if (selectedCustomerId === 'cust-chung' && activeTab !== 1 && activeTab !== 2 && activeTab !== 3) {
+      setActiveTab(1);
+    }
+  }, [selectedCustomerId, activeTab, setActiveTab]);
 
   const negDiffCount = currentCustomerDiscrepancies.filter((d) => d.hasNegative).length;
   const pendingCompCount = currentCustomerCompensationItems.filter(
@@ -39,60 +49,84 @@ export const HorizontalTabs: React.FC<HorizontalTabsProps> = ({ activeTab, setAc
 
   const [showBackupModal, setShowBackupModal] = useState(false);
 
-  const tabs = [
-    { id: 0, label: 'Khách Hàng & Dải Size', icon: Users, badge: null },
-    {
-      id: 1,
-      label: 'Tab 1: Số Vật Tư Trên Phiếu',
-      icon: FileSpreadsheet,
-      badge: currentCustomerPlanOrders.length > 0 ? `${currentCustomerPlanOrders.length} đơn` : null,
-    },
-    {
-      id: 2,
-      label: 'Tab 2: Số Vật Tư Thực Nhận',
-      icon: PackageCheck,
-      badge: currentCustomerActualReceives.length > 0 ? `${currentCustomerActualReceives.length} đã nhận` : null,
-    },
-    {
-      id: 3,
-      label: 'Tab 3: Số Vật Tư Chênh Lệch',
-      icon: Scale,
-      badge: negDiffCount > 0 ? `${negDiffCount} lệch âm` : 'Khớp',
-      isWarning: negDiffCount > 0,
-    },
-    {
-      id: 5,
-      label: 'Tab 5: Xuất Vật Tư Cho Sản Xuất',
-      icon: Factory,
-      badge: currentCustomerProductionIssues.length > 0 ? `${currentCustomerProductionIssues.length} đợt` : null,
-    },
-    {
-      id: 6,
-      label: 'Tab 6: Tồn Kho Vật Tư Realtime',
-      icon: Warehouse,
-      badge: currentCustomerRealtimeStock.length > 0 ? `${currentCustomerRealtimeStock.length} mã` : null,
-    },
-    {
-      id: 7,
-      label: 'Tab 7: Ghi Nhận Sản Xuất Xong',
-      icon: ClipboardCheck,
-      badge: currentCustomerProductionReports.length > 0 ? `${currentCustomerProductionReports.length} báo cáo` : null,
-    },
-    {
-      id: 8,
-      label: 'Tab 8: Kho & Xuất Thành Phẩm',
-      icon: Truck,
-      badge: currentCustomerFinishedGoodsStock.length > 0 ? `${currentCustomerFinishedGoodsStock.length} mã TP` : null,
-      highlight: currentCustomerFinishedGoodsStock.some(s => s.totalStock > 0),
-    },
-    {
-      id: 9,
-      label: 'Tab 9: Bảng Thống Kê Tổng Hợp',
-      icon: BarChart3,
-      badge: currentCustomerPlanOrders.length > 0 ? `${currentCustomerPlanOrders.length} mã` : null,
-      highlight: true,
-    },
-  ];
+  // KHI CHỌN "KHO CHUNG (NỘI BỘ D&D)": CHỈ CÓ ĐÚNG 3 TAB CHÍNH
+  const tabs =
+    selectedCustomerId === 'cust-chung'
+      ? [
+          {
+            id: 1,
+            label: 'Tab 1: Phiếu Nhập Kho',
+            icon: FileSpreadsheet,
+            badge: generalInboundSlips.length > 0 ? `${generalInboundSlips.length} phiếu` : null,
+          },
+          {
+            id: 2,
+            label: 'Tab 2: Phiếu Xuất Kho',
+            icon: Truck,
+            badge: generalOutboundSlips.length > 0 ? `${generalOutboundSlips.length} phiếu` : null,
+          },
+          {
+            id: 3,
+            label: 'Tab 3: Tồn Kho & Lần Xuất',
+            icon: Warehouse,
+            badge: 'Realtime',
+            highlight: true,
+          },
+        ]
+      : [
+          { id: 0, label: 'Khách Hàng & Dải Size', icon: Users, badge: null },
+          {
+            id: 1,
+            label: 'Tab 1: Số Vật Tư Trên Phiếu',
+            icon: FileSpreadsheet,
+            badge: currentCustomerPlanOrders.length > 0 ? `${currentCustomerPlanOrders.length} đơn` : null,
+          },
+          {
+            id: 2,
+            label: 'Tab 2: Số Vật Tư Thực Nhận',
+            icon: PackageCheck,
+            badge: currentCustomerActualReceives.length > 0 ? `${currentCustomerActualReceives.length} đã nhận` : null,
+          },
+          {
+            id: 3,
+            label: 'Tab 3: Số Vật Tư Chênh Lệch',
+            icon: Scale,
+            badge: negDiffCount > 0 ? `${negDiffCount} lệch âm` : 'Khớp',
+            isWarning: negDiffCount > 0,
+          },
+          {
+            id: 5,
+            label: 'Tab 5: Xuất Vật Tư Cho Sản Xuất',
+            icon: Factory,
+            badge: currentCustomerProductionIssues.length > 0 ? `${currentCustomerProductionIssues.length} đợt` : null,
+          },
+          {
+            id: 6,
+            label: 'Tab 6: Tồn Kho Vật Tư Realtime',
+            icon: Warehouse,
+            badge: currentCustomerRealtimeStock.length > 0 ? `${currentCustomerRealtimeStock.length} mã` : null,
+          },
+          {
+            id: 7,
+            label: 'Tab 7: Ghi Nhận Sản Xuất Xong',
+            icon: ClipboardCheck,
+            badge: currentCustomerProductionReports.length > 0 ? `${currentCustomerProductionReports.length} báo cáo` : null,
+          },
+          {
+            id: 8,
+            label: 'Tab 8: Kho & Xuất Thành Phẩm',
+            icon: Truck,
+            badge: currentCustomerFinishedGoodsStock.length > 0 ? `${currentCustomerFinishedGoodsStock.length} mã TP` : null,
+            highlight: currentCustomerFinishedGoodsStock.some((s) => s.totalStock > 0),
+          },
+          {
+            id: 9,
+            label: 'Tab 9: Bảng Thống Kê Tổng Hợp',
+            icon: BarChart3,
+            badge: currentCustomerPlanOrders.length > 0 ? `${currentCustomerPlanOrders.length} mã` : null,
+            highlight: true,
+          },
+        ];
 
   return (
     <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-2xs px-4 sm:px-6 py-2 flex items-center justify-between gap-3">

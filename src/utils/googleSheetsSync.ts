@@ -15,6 +15,8 @@ import {
   ProductionReportRow,
   FinishedGoodsStockItem,
   FinishedGoodsDeliveryRow,
+  GeneralInboundSlip,
+  GeneralOutboundSlip,
 } from '../types';
 
 export interface SheetExportData {
@@ -61,10 +63,121 @@ export function buildCompanySheetsPayload(
   realtimeStock: RealtimeStockItem[],
   productionReports: ProductionReportRow[],
   finishedGoodsStock: FinishedGoodsStockItem[],
-  finishedGoodsDeliveries: FinishedGoodsDeliveryRow[]
+  finishedGoodsDeliveries: FinishedGoodsDeliveryRow[],
+  generalInboundSlips?: GeneralInboundSlip[],
+  generalOutboundSlips?: GeneralOutboundSlip[]
 ): CompanyBackupPayload {
   const currentSizes = sizes && sizes.length > 0 ? sizes : ['4', '5', '6', '7', '8', '9', '10', '11', '12'];
   const timestamp = new Date().toLocaleString('vi-VN');
+
+  // NẾU LÀ KHO CHUNG (NỘI BỘ D&D): XUẤT 3 SHEETS CHUẨN KHO CHUNG
+  if (customer.id === 'cust-chung') {
+    const inSlips = generalInboundSlips || [];
+    const outSlips = generalOutboundSlips || [];
+
+    // 1. Sheet Nhập Kho
+    const inHeaders = ['STT', 'Mã Phiếu', 'Ngày Nhập', 'Mã Hàng', 'Tên Hàng Hóa', 'ĐVT', 'Số Lượng', 'Đơn Giá (VNĐ)', 'Thành Tiền (VNĐ)', 'Người Nhập', 'Bộ Phận', 'Ghi Chú'];
+    const inRows: (string | number)[][] = [];
+    let inStt = 1;
+    inSlips.forEach((slip) => {
+      slip.items.forEach((it) => {
+        inRows.push([
+          inStt++,
+          slip.slipNumber,
+          slip.date,
+          it.itemCode || '-',
+          it.itemName,
+          it.unit,
+          it.quantity,
+          it.unitPrice,
+          it.totalAmount,
+          it.receiver || 'Hà',
+          it.department || 'Kho',
+          it.note || '',
+        ]);
+      });
+    });
+
+    // 2. Sheet Xuất Kho
+    const outHeaders = ['STT', 'Mã Phiếu', 'Ngày Xuất', 'Mã Hàng', 'Tên Hàng Hóa', 'Nhóm Phân Loại', 'ĐVT', 'Số Lượng Xuất', 'Người Nhận', 'Bộ Phận Sử Dụng', 'Mục Đích Sử Dụng', 'Ghi Chú'];
+    const outRows: (string | number)[][] = [];
+    let outStt = 1;
+    outSlips.forEach((slip) => {
+      slip.items.forEach((it) => {
+        outRows.push([
+          outStt++,
+          slip.slipNumber,
+          slip.date,
+          it.itemCode || '-',
+          it.itemName,
+          it.group,
+          it.unit,
+          it.quantity,
+          it.receiver || '',
+          it.department || '',
+          it.purpose || '',
+          it.note || '',
+        ]);
+      });
+    });
+
+    // 3. Sheet Tồn Kho
+    const stockHeaders = ['STT', 'Mã Hàng', 'Tên Hàng Hóa', 'Nhóm Phân Loại', 'ĐVT', 'Tổng Số Lượng Nhập', 'Tổng Số Lượng Xuất', 'Tồn Kho Hiện Tại', 'Trạng Thái'];
+    const stockMap = new Map<string, { itemCode: string; itemName: string; group?: string; unit: string; totalIn: number; totalOut: number }>();
+    inSlips.forEach((s) => s.items.forEach((it) => {
+      const k = (it.itemCode || it.itemName).trim().toUpperCase();
+      if (!stockMap.has(k)) stockMap.set(k, { itemCode: it.itemCode || '-', itemName: it.itemName, unit: it.unit, totalIn: 0, totalOut: 0 });
+      stockMap.get(k)!.totalIn += Number(it.quantity) || 0;
+    }));
+    outSlips.forEach((s) => s.items.forEach((it) => {
+      const k = (it.itemCode || it.itemName).trim().toUpperCase();
+      if (!stockMap.has(k)) stockMap.set(k, { itemCode: it.itemCode || '-', itemName: it.itemName, group: it.group, unit: it.unit, totalIn: 0, totalOut: 0 });
+      const item = stockMap.get(k)!;
+      item.totalOut += Number(it.quantity) || 0;
+      if (it.group && !item.group) item.group = it.group;
+    }));
+    const stockRows = Array.from(stockMap.values()).map((it, idx) => {
+      const curStock = it.totalIn - it.totalOut;
+      return [
+        idx + 1,
+        it.itemCode,
+        it.itemName,
+        it.group || 'Vật tư',
+        it.unit,
+        it.totalIn,
+        it.totalOut,
+        curStock,
+        curStock <= 0 ? 'Hết hàng' : 'Còn hàng',
+      ];
+    });
+
+    return {
+      secretToken: SECRET_API_TOKEN,
+      companyId: customer.id,
+      companyName: customer.name,
+      timestamp,
+      sheets: {
+        'Tab1_PhieuNhapKho': {
+          title: 'Tab1_PhieuNhapKho',
+          themeColor: '#ed7d31', // Orange
+          headers: inHeaders,
+          rows: inRows,
+        },
+        'Tab2_PhieuXuatKho': {
+          title: 'Tab2_PhieuXuatKho',
+          themeColor: '#2f5597', // Blue
+          headers: outHeaders,
+          rows: outRows,
+        },
+        'Tab3_TonKho_Realtime': {
+          title: 'Tab3_TonKho_Realtime',
+          themeColor: '#1f4e78', // Navy
+          headers: stockHeaders,
+          rows: stockRows,
+        },
+      },
+    };
+  }
 
   // 1. Sheet 01: Đơn Hàng Gốc
   const poHeaders = ['STT', 'Mã PO', 'Style / Tên Hàng', 'Ngày Đặt', 'ĐVT', ...currentSizes.map((s) => 'Size ' + s), 'Tổng SL Đặt', 'Ghi Chú'];
