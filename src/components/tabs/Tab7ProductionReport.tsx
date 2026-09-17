@@ -113,8 +113,7 @@ export const Tab7ProductionReport: React.FC = () => {
       completedQuantities: compInit,
       damagedQuantities: {},
       compensationFromStock: {},
-      compensationFromCustomer: {},
-      status: 'Đủ hàng',
+      status: 'Đạt chuẩn',
       note: '',
     };
   };
@@ -142,8 +141,8 @@ export const Tab7ProductionReport: React.FC = () => {
           damagedQuantities: {},
           compensationFromStock: {},
           compensationFromCustomer: {},
-          status: r.status || 'Đủ hàng',
-          note: r.note || '',
+          status: 'Đạt chuẩn',
+          note: r.note && r.note.toLowerCase().includes('làm hỏng') ? '' : (r.note || ''),
         };
       });
     }
@@ -185,8 +184,8 @@ export const Tab7ProductionReport: React.FC = () => {
           damagedQuantities: {},
           compensationFromStock: {},
           compensationFromCustomer: {},
-          status: r.status || 'Đủ hàng',
-          note: r.note || '',
+          status: 'Đạt chuẩn',
+          note: r.note && r.note.toLowerCase().includes('làm hỏng') ? '' : (r.note || ''),
         };
       });
 
@@ -200,15 +199,7 @@ export const Tab7ProductionReport: React.FC = () => {
   const [selectedForPrint, setSelectedForPrint] = useState<ProductionReportRow | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
 
-  // Helper lấy tồn kho từ Tab 5 để đối chiếu xử lý hỏng
-  const getAvailableStock = (poNumber: string, itemCode: string, size: string): number => {
-    const key = `${poNumber.trim().toUpperCase()}__${itemCode.trim().toUpperCase()}`;
-    const stockItem = currentCustomerRealtimeStock.find((s) => s.key === key);
-    if (!stockItem) return 0;
-    return stockItem.currentStockSizes[size] || 0;
-  };
-
-  // Thêm 1 dòng mới đại diện cho 1 PO mới (tự tăng STT và lặp lại dòng đạt chuẩn & làm hỏng)
+  // Thêm 1 dòng mới đại diện cho 1 PO mới
   const handleAddNewRow = () => {
     setReportItems((prev) => {
       const next = [...prev, createBlankItem(prev.length, true)];
@@ -327,7 +318,7 @@ export const Tab7ProductionReport: React.FC = () => {
       damagedQuantities: {},
       compensationFromStock: {},
       compensationFromCustomer: {},
-      status: 'Đủ hàng',
+      status: 'Đạt chuẩn',
       note: item.note.trim() || undefined,
     };
 
@@ -346,7 +337,7 @@ export const Tab7ProductionReport: React.FC = () => {
               id: reportData.id,
               isNew: false,
               isEditing: false, // Khóa dòng!
-              status: 'Đủ hàng',
+              status: 'Đạt chuẩn',
             }
           : r
       )
@@ -446,7 +437,6 @@ export const Tab7ProductionReport: React.FC = () => {
       'ĐVT',
       ...sizes.map((s) => `Size ${s}`),
       'Tổng SL Đạt',
-      'Trạng Thái',
       'Ghi Chú',
     ];
 
@@ -467,7 +457,6 @@ export const Tab7ProductionReport: React.FC = () => {
         rep.unit,
         ...sizes.map((s) => (typeof rep.completedQuantities[s] === 'number' ? rep.completedQuantities[s] : 0)),
         cTotal,
-        rep.status,
         rep.note || '',
       ]);
     });
@@ -501,7 +490,7 @@ export const Tab7ProductionReport: React.FC = () => {
             damagedQuantities: {},
             compensationFromStock: {},
             compensationFromCustomer: {},
-            status: r.status as any,
+            status: 'Đạt chuẩn',
             note: r.note,
           };
         });
@@ -518,7 +507,7 @@ export const Tab7ProductionReport: React.FC = () => {
         unit: r.unit,
         sizeQuantities: r.completedQuantities,
         totalQty: cTotal,
-        note: `Trạng thái: ${r.status} ${r.note ? `• ${r.note}` : ''}`,
+        note: r.note || '',
       };
     });
   }, [selectedForPrint, filteredItems, sizes, currentCustomer]);
@@ -616,7 +605,6 @@ export const Tab7ProductionReport: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[80px] text-right bg-emerald-100 text-emerald-950 font-bold">
                   TỔNG SL
                 </th>
-                <th className="p-2 border-r border-slate-300 min-w-[110px] text-center">Trạng Thái</th>
                 <th className="p-2 border-r border-slate-300 min-w-[120px]">Ghi Chú</th>
                 <th className="p-2 text-center w-24">Thao Tác</th>
               </tr>
@@ -888,13 +876,6 @@ export const Tab7ProductionReport: React.FC = () => {
                       {compTotal > 0 ? compTotal.toLocaleString('vi-VN') : '-'}
                     </td>
 
-                    {/* Trạng thái xử lý */}
-                    <td className="p-2 border-r border-slate-200 text-center">
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        {item.status || 'Đủ hàng'}
-                      </span>
-                    </td>
-
                     {/* Ghi chú */}
                     <td className="p-0 border-r border-slate-300 align-middle bg-white">
                       {isLocked ? (
@@ -1037,7 +1018,7 @@ export const Tab7ProductionReport: React.FC = () => {
                     )
                     .toLocaleString('vi-VN')}
                 </td>
-                <td colSpan={3} className="p-2 text-slate-600 text-[11px] italic">
+                <td colSpan={2} className="p-2 text-slate-600 text-[11px] italic">
                   Tổng {filteredItems.length} đợt nghiệm thu chuyền
                 </td>
               </tr>

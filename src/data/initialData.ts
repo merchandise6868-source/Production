@@ -624,7 +624,7 @@ export const INITIAL_PRODUCTION_ISSUES: ProductionIssueRow[] = [
   },
 ];
 
-// TAB 7: GHI NHẬN SẢN XUẤT XONG (Nghiệm thu & Xử lý Hỏng)
+// TAB 7: GHI NHẬN SẢN XUẤT XONG (Nghiệm thu đạt chuẩn nhập kho)
 export const INITIAL_PRODUCTION_REPORTS: ProductionReportRow[] = [
   {
     id: 'rep-dw-01',
@@ -632,36 +632,26 @@ export const INITIAL_PRODUCTION_REPORTS: ProductionReportRow[] = [
     reportDate: '11/09/2026',
     poNumber: 'AS-26.015',
     itemCode: 'FT-0926',
+    itemType: 'Thành Phẩm',
+    detailName: 'Mặt giày thể thao',
     lineId: 'Chuyền 1',
     unit: 'PRS',
     completedQuantities: {
       '4': 0,
       '5': 20,
       '6': 25,
-      '7': 27,
+      '7': 30,
       '8': 30,
       '9': 0,
       '10': 15,
       '11': 0,
       '12': 0,
     },
-    damagedQuantities: {
-      '4': 0,
-      '5': 0,
-      '6': 0,
-      '7': 3, // HỎNG 3 ĐÔI SIZE 7 DO LỖI MÁY ÉP
-      '8': 0,
-      '9': 0,
-      '10': 0,
-      '11': 0,
-      '12': 0,
-    },
-    compensationFromStock: {
-      '7': 3, // Kho còn hàng (còn 30) -> Bù 3 đôi từ kho
-    },
+    damagedQuantities: {},
+    compensationFromStock: {},
     compensationFromCustomer: {},
-    status: 'Xuất bù từ kho',
-    note: 'Chuyền 1 làm hỏng 3 đôi size 7 do chỉnh nhiệt máy ép, kho đã xuất bù',
+    status: 'Đạt chuẩn',
+    note: '',
   },
 ];
 

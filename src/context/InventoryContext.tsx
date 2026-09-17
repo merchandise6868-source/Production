@@ -222,9 +222,18 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [productionIssues, setProductionIssues] = useState<ProductionIssueRow[]>(() =>
     loadStored('productionIssues', INITIAL_PRODUCTION_ISSUES)
   );
-  const [productionReports, setProductionReports] = useState<ProductionReportRow[]>(() =>
-    loadStored('productionReports', INITIAL_PRODUCTION_REPORTS)
-  );
+  const [productionReports, setProductionReports] = useState<ProductionReportRow[]>(() => {
+    const raw = loadStored('productionReports', INITIAL_PRODUCTION_REPORTS);
+    return (raw || []).map((r: ProductionReportRow) => ({
+      ...r,
+      itemType: r.itemType || 'Thành Phẩm',
+      damagedQuantities: {},
+      compensationFromStock: {},
+      compensationFromCustomer: {},
+      status: 'Đạt chuẩn',
+      note: r.note && r.note.toLowerCase().includes('làm hỏng') ? '' : (r.note || ''),
+    }));
+  });
   const [customCompensationRequests, setCustomCompensationRequests] = useState<CompensationRequestItem[]>(() =>
     loadStored('compensationRequests', [])
   );

@@ -229,8 +229,7 @@ export interface ProductionReportRow {
   completedQuantities: Record<string, number>; // Số lượng hoàn thành
   damagedQuantities?: Record<string, number>;   // Số lượng làm hư hỏng (nếu có)
   compensationFromStock?: Record<string, number>; // Lấy tồn kho bù vào (Tab 6 Xuất bù)
-  compensationFromCustomer?: Record<string, number>; // Kho hết hàng -> Đẩy sang Tab 4
-  status: 'Đủ hàng' | 'Xuất bù từ kho' | 'Đề nghị KH cấp bù';
+  status?: 'Đạt chuẩn' | 'Đủ hàng' | string;
   note?: string;
 }
 
