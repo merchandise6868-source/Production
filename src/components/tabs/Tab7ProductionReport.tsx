@@ -28,13 +28,14 @@ export interface Tab7ReportItem {
   reportDate: string;
   poNumber: string;
   itemCode: string;
+  itemType: 'Thành Phẩm' | 'Bán thành phẩm';
   detailName?: string;
   lineId: string;
   unit: string;
   completedQuantities: Record<string, number | ''>;
-  damagedQuantities: Record<string, number | ''>;
-  compensationFromStock: Record<string, number>;
-  compensationFromCustomer: Record<string, number>;
+  damagedQuantities?: Record<string, number | ''>;
+  compensationFromStock?: Record<string, number>;
+  compensationFromCustomer?: Record<string, number>;
   status: string;
   note: string;
 }
@@ -93,10 +94,8 @@ export const Tab7ProductionReport: React.FC = () => {
 
   const createBlankItem = (idx: number, isEditing: boolean = true): Tab7ReportItem => {
     const compInit: Record<string, number | ''> = {};
-    const damInit: Record<string, number | ''> = {};
     sizes.forEach((s) => {
       compInit[s] = '';
-      damInit[s] = '';
     });
 
     const defaultPlan = currentCustomerPlanOrders[idx] || currentCustomerPlanOrders[0];
@@ -107,11 +106,12 @@ export const Tab7ProductionReport: React.FC = () => {
       reportDate: defaultDate,
       poNumber: defaultPlan?.poNumber || '',
       itemCode: defaultPlan?.itemCode || '',
+      itemType: 'Thành Phẩm',
       detailName: defaultPlan?.description || '',
       lineId: 'Chuyền 1',
       unit: defaultPlan?.unit || 'PRS',
       completedQuantities: compInit,
-      damagedQuantities: damInit,
+      damagedQuantities: {},
       compensationFromStock: {},
       compensationFromCustomer: {},
       status: 'Đủ hàng',
@@ -119,15 +119,13 @@ export const Tab7ProductionReport: React.FC = () => {
     };
   };
 
-  // State danh sách các dòng trên bảng (mỗi dòng đại diện cho 1 PO với 2 phân dòng: Đạt chuẩn & Làm hỏng)
+  // State danh sách các dòng trên bảng (mỗi bản ghi là 1 dòng đơn)
   const [reportItems, setReportItems] = useState<Tab7ReportItem[]>(() => {
     if (currentCustomerProductionReports.length > 0) {
       return currentCustomerProductionReports.map((r) => {
         const comp: Record<string, number | ''> = {};
-        const dam: Record<string, number | ''> = {};
         sizes.forEach((s) => {
           comp[s] = typeof r.completedQuantities[s] === 'number' ? r.completedQuantities[s] : '';
-          dam[s] = typeof r.damagedQuantities[s] === 'number' ? r.damagedQuantities[s] : '';
         });
         return {
           id: r.id,
@@ -136,13 +134,14 @@ export const Tab7ProductionReport: React.FC = () => {
           reportDate: r.reportDate,
           poNumber: r.poNumber,
           itemCode: r.itemCode,
+          itemType: (r.itemType as 'Thành Phẩm' | 'Bán thành phẩm') || 'Thành Phẩm',
           detailName: r.detailName || '',
           lineId: r.lineId,
           unit: r.unit || 'PRS',
           completedQuantities: comp,
-          damagedQuantities: dam,
-          compensationFromStock: r.compensationFromStock || {},
-          compensationFromCustomer: r.compensationFromCustomer || {},
+          damagedQuantities: {},
+          compensationFromStock: {},
+          compensationFromCustomer: {},
           status: r.status || 'Đủ hàng',
           note: r.note || '',
         };
@@ -168,10 +167,8 @@ export const Tab7ProductionReport: React.FC = () => {
           return editingMap.get(r.id)!;
         }
         const comp: Record<string, number | ''> = {};
-        const dam: Record<string, number | ''> = {};
         sizes.forEach((s) => {
           comp[s] = typeof r.completedQuantities[s] === 'number' ? r.completedQuantities[s] : '';
-          dam[s] = typeof r.damagedQuantities[s] === 'number' ? r.damagedQuantities[s] : '';
         });
         return {
           id: r.id,
@@ -180,13 +177,14 @@ export const Tab7ProductionReport: React.FC = () => {
           reportDate: r.reportDate,
           poNumber: r.poNumber,
           itemCode: r.itemCode,
+          itemType: (r.itemType as 'Thành Phẩm' | 'Bán thành phẩm') || 'Thành Phẩm',
           detailName: r.detailName || '',
           lineId: r.lineId,
           unit: r.unit || 'PRS',
           completedQuantities: comp,
-          damagedQuantities: dam,
-          compensationFromStock: r.compensationFromStock || {},
-          compensationFromCustomer: r.compensationFromCustomer || {},
+          damagedQuantities: {},
+          compensationFromStock: {},
+          compensationFromCustomer: {},
           status: r.status || 'Đủ hàng',
           note: r.note || '',
         };
@@ -265,7 +263,6 @@ export const Tab7ProductionReport: React.FC = () => {
 
   const handleUpdateItemSizeQty = (
     id: string,
-    type: 'completed' | 'damaged',
     size: string,
     val: string
   ) => {
@@ -273,23 +270,13 @@ export const Tab7ProductionReport: React.FC = () => {
     setReportItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
-        if (type === 'completed') {
-          return {
-            ...item,
-            completedQuantities: {
-              ...item.completedQuantities,
-              [size]: num,
-            },
-          };
-        } else {
-          return {
-            ...item,
-            damagedQuantities: {
-              ...item.damagedQuantities,
-              [size]: num,
-            },
-          };
-        }
+        return {
+          ...item,
+          completedQuantities: {
+            ...item.completedQuantities,
+            [size]: num,
+          },
+        };
       })
     );
   };
@@ -311,54 +298,20 @@ export const Tab7ProductionReport: React.FC = () => {
       return;
     }
 
-    const cTotal = sizes.reduce((sum, s) => sum + (typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0), 0);
-    const dTotal = sizes.reduce((sum, s) => sum + (typeof item.damagedQuantities[s] === 'number' ? Number(item.damagedQuantities[s]) : 0), 0);
+    const cTotal = sizes.reduce(
+      (sum, s) => sum + (typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0),
+      0
+    );
 
-    if (cTotal <= 0 && dTotal <= 0) {
-      alert('Vui lòng nhập số lượng đạt chuẩn hoặc số lượng làm hỏng cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
+    if (cTotal <= 0) {
+      alert('Vui lòng nhập số lượng đạt chuẩn cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
       return;
     }
 
-    // Tính toán nhánh bù kho / bù khách
     const completedQ: Record<string, number> = {};
-    const damagedQ: Record<string, number> = {};
-    const fromStock: Record<string, number> = {};
-    const fromCustomer: Record<string, number> = {};
-    let totalDamaged = 0;
-    let totalFromStock = 0;
-    let totalFromCustomer = 0;
-
     sizes.forEach((s) => {
-      const c = typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0;
-      const d = typeof item.damagedQuantities[s] === 'number' ? Number(item.damagedQuantities[s]) : 0;
-      completedQ[s] = c;
-      damagedQ[s] = d;
-
-      if (d > 0) {
-        totalDamaged += d;
-        const available = getAvailableStock(item.poNumber, item.itemCode, s);
-        if (available >= d) {
-          fromStock[s] = d;
-          totalFromStock += d;
-        } else if (available > 0) {
-          fromStock[s] = available;
-          totalFromStock += available;
-          const shortage = d - available;
-          fromCustomer[s] = shortage;
-          totalFromCustomer += shortage;
-        } else {
-          fromCustomer[s] = d;
-          totalFromCustomer += d;
-        }
-      }
+      completedQ[s] = typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0;
     });
-
-    let status: ProductionReportRow['status'] = 'Đủ hàng';
-    if (totalFromCustomer > 0) {
-      status = 'Đề nghị KH cấp bù';
-    } else if (totalFromStock > 0) {
-      status = 'Xuất bù từ kho';
-    }
 
     const reportData: ProductionReportRow = {
       id: item.isNew ? `rep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : item.id,
@@ -366,14 +319,15 @@ export const Tab7ProductionReport: React.FC = () => {
       reportDate: item.reportDate.trim() || defaultDate,
       poNumber: item.poNumber.trim().toUpperCase(),
       itemCode: item.itemCode.trim().toUpperCase(),
+      itemType: item.itemType || 'Thành Phẩm',
       detailName: item.detailName?.trim() || undefined,
       lineId: item.lineId,
       unit: item.unit || 'PRS',
       completedQuantities: completedQ,
-      damagedQuantities: damagedQ,
-      compensationFromStock: fromStock,
-      compensationFromCustomer: fromCustomer,
-      status,
+      damagedQuantities: {},
+      compensationFromStock: {},
+      compensationFromCustomer: {},
+      status: 'Đủ hàng',
       note: item.note.trim() || undefined,
     };
 
@@ -392,15 +346,13 @@ export const Tab7ProductionReport: React.FC = () => {
               id: reportData.id,
               isNew: false,
               isEditing: false, // Khóa dòng!
-              status,
-              compensationFromStock: fromStock,
-              compensationFromCustomer: fromCustomer,
+              status: 'Đủ hàng',
             }
           : r
       )
     );
 
-    toast(`🔒 Đã lưu & khóa dòng PO ${reportData.poNumber} thành công! Nhấn Sửa ✏️ để mở khóa chỉnh lại.`);
+    toast(`🔒 Đã lưu & khóa dòng PO ${reportData.poNumber} [${reportData.itemType}] thành công! Nhấn Sửa ✏️ để mở khóa chỉnh lại.`);
   };
 
   // Xóa dòng
@@ -420,11 +372,10 @@ export const Tab7ProductionReport: React.FC = () => {
     });
   };
 
-  // Dán từ Excel vào hàng (completed hoặc damaged) thông minh
+  // Dán từ Excel vào hàng số lượng nghiệm thu đạt chuẩn
   const handleCellPaste = (
     e: React.ClipboardEvent,
     targetItemIdx: number,
-    type: 'completed' | 'damaged',
     startSize: string
   ) => {
     const clip = e.clipboardData.getData('text');
@@ -439,79 +390,30 @@ export const Tab7ProductionReport: React.FC = () => {
     setReportItems((prev) => {
       let currentRows = [...prev];
 
-      if (rawLines.length === 1) {
-        // Chỉ 1 dòng: Dán ngang trên dòng hiện tại (completed hoặc damaged)
-        const parts = rawLines[0].trim().split(/[\t\s]+/).filter(Boolean);
-        if (targetItemIdx < currentRows.length) {
-          const item = { ...currentRows[targetItemIdx] };
-          const targetDict = type === 'completed' ? { ...item.completedQuantities } : { ...item.damagedQuantities };
-          parts.forEach((p, offset) => {
-            const targetIdx = startSizeIdx + offset;
-            if (targetIdx < sizes.length) {
-              const sz = sizes[targetIdx];
-              const num = parseFloat(p.replace(/,/g, ''));
-              targetDict[sz] = isNaN(num) ? '' : Math.max(0, num);
-            }
-          });
-          if (type === 'completed') {
-            item.completedQuantities = targetDict;
-          } else {
-            item.damagedQuantities = targetDict;
-          }
-          currentRows[targetItemIdx] = item;
-        }
-        toast(`📋 Đã dán ${parts.length} số lượng từ Size ${startSize}!`);
-      } else {
-        // Nhiều dòng: Dán theo cặp (Dòng 1: Đạt chuẩn, Dòng 2: Làm hỏng)
-        let rowLineIdx = 0;
-        let poIdx = targetItemIdx;
-
-        while (rowLineIdx < rawLines.length) {
-          if (poIdx >= currentRows.length) {
-            currentRows.push(createBlankItem(currentRows.length, true));
-          }
-
-          const item = { ...currentRows[poIdx], isEditing: true };
-
-          // Dòng đầu: Đạt chuẩn (nếu bắt đầu từ completed)
-          if (rowLineIdx < rawLines.length) {
-            const compParts = rawLines[rowLineIdx].trim().split(/[\t\s]+/).filter(Boolean);
-            const compDict = { ...item.completedQuantities };
-            compParts.forEach((p, offset) => {
-              const targetIdx = startSizeIdx + offset;
-              if (targetIdx < sizes.length) {
-                const sz = sizes[targetIdx];
-                const num = parseFloat(p.replace(/,/g, ''));
-                compDict[sz] = isNaN(num) ? '' : Math.max(0, num);
-              }
-            });
-            item.completedQuantities = compDict;
-            rowLineIdx++;
-          }
-
-          // Dòng tiếp: Làm hỏng (nếu còn dòng)
-          if (rowLineIdx < rawLines.length && type === 'completed') {
-            const damParts = rawLines[rowLineIdx].trim().split(/[\t\s]+/).filter(Boolean);
-            const damDict = { ...item.damagedQuantities };
-            damParts.forEach((p, offset) => {
-              const targetIdx = startSizeIdx + offset;
-              if (targetIdx < sizes.length) {
-                const sz = sizes[targetIdx];
-                const num = parseFloat(p.replace(/,/g, ''));
-                damDict[sz] = isNaN(num) ? '' : Math.max(0, num);
-              }
-            });
-            item.damagedQuantities = damDict;
-            rowLineIdx++;
-          }
-
-          currentRows[poIdx] = item;
-          poIdx++;
+      rawLines.forEach((line, lineOffset) => {
+        const poIdx = targetItemIdx + lineOffset;
+        if (poIdx >= currentRows.length) {
+          currentRows.push(createBlankItem(currentRows.length, true));
         }
 
-        toast(`📋 Đã dán ${rawLines.length} dòng số lượng từ Excel thành công!`);
-      }
+        const item = { ...currentRows[poIdx], isEditing: true };
+        const parts = line.trim().split(/[\t\s]+/).filter(Boolean);
+        const compDict = { ...item.completedQuantities };
 
+        parts.forEach((p, offset) => {
+          const targetIdx = startSizeIdx + offset;
+          if (targetIdx < sizes.length) {
+            const sz = sizes[targetIdx];
+            const num = parseFloat(p.replace(/,/g, ''));
+            compDict[sz] = isNaN(num) ? '' : Math.max(0, num);
+          }
+        });
+
+        item.completedQuantities = compDict;
+        currentRows[poIdx] = item;
+      });
+
+      toast(`📋 Đã dán ${rawLines.length} dòng số lượng từ Excel thành công!`);
       return currentRows;
     });
   };
@@ -524,6 +426,7 @@ export const Tab7ProductionReport: React.FC = () => {
       (i) =>
         i.poNumber.toLowerCase().includes(q) ||
         i.itemCode.toLowerCase().includes(q) ||
+        (i.itemType && i.itemType.toLowerCase().includes(q)) ||
         (i.detailName && i.detailName.toLowerCase().includes(q)) ||
         i.lineId.toLowerCase().includes(q) ||
         i.status.toLowerCase().includes(q)
@@ -537,48 +440,36 @@ export const Tab7ProductionReport: React.FC = () => {
       'Ngày BC',
       'Mã PO',
       'Code Vật tư',
+      'Loại',
       'Tên Chi Tiết',
       'Chuyền SX',
       'ĐVT',
-      'Phân Loại',
       ...sizes.map((s) => `Size ${s}`),
-      'Tổng SL',
-      'Trạng Thái Xử Lý Hỏng',
+      'Tổng SL Đạt',
+      'Trạng Thái',
+      'Ghi Chú',
     ];
 
     const dataRows: any[] = [];
     filteredItems.forEach((rep, idx) => {
-      const cTotal = sizes.reduce((sum, s) => sum + (typeof rep.completedQuantities[s] === 'number' ? Number(rep.completedQuantities[s]) : 0), 0);
+      const cTotal = sizes.reduce(
+        (sum, s) => sum + (typeof rep.completedQuantities[s] === 'number' ? Number(rep.completedQuantities[s]) : 0),
+        0
+      );
       dataRows.push([
         idx + 1,
         rep.reportDate,
         rep.poNumber,
         rep.itemCode,
+        rep.itemType || 'Thành Phẩm',
         rep.detailName || '',
         rep.lineId,
         rep.unit,
-        '1. Đạt chuẩn (Nhập)',
         ...sizes.map((s) => (typeof rep.completedQuantities[s] === 'number' ? rep.completedQuantities[s] : 0)),
         cTotal,
         rep.status,
+        rep.note || '',
       ]);
-
-      const dTotal = sizes.reduce((sum, s) => sum + (typeof rep.damagedQuantities[s] === 'number' ? Number(rep.damagedQuantities[s]) : 0), 0);
-      if (dTotal > 0 || rep.isEditing) {
-        dataRows.push([
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '2. Làm hỏng (nếu có)',
-          ...sizes.map((s) => (typeof rep.damagedQuantities[s] === 'number' ? rep.damagedQuantities[s] : 0)),
-          dTotal,
-          `Kho bù: ${sizes.reduce((s, k) => s + (rep.compensationFromStock[k] || 0), 0)} | KH bù: ${sizes.reduce((s, k) => s + (rep.compensationFromCustomer[k] || 0), 0)}`,
-        ]);
-      }
     });
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
@@ -602,6 +493,8 @@ export const Tab7ProductionReport: React.FC = () => {
             reportDate: r.reportDate,
             poNumber: r.poNumber,
             itemCode: r.itemCode,
+            itemType: r.itemType,
+            detailName: r.detailName,
             lineId: r.lineId,
             unit: r.unit,
             completedQuantities: compNum,
@@ -621,7 +514,7 @@ export const Tab7ProductionReport: React.FC = () => {
         voucherCode: r.lineId,
         poNumber: r.poNumber,
         code: r.itemCode,
-        description: `Báo cáo nghiệm thu ${r.lineId}`,
+        description: `Báo cáo nghiệm thu [${r.itemType || 'Thành Phẩm'}] - ${r.lineId}`,
         unit: r.unit,
         sizeQuantities: r.completedQuantities,
         totalQty: cTotal,
@@ -642,7 +535,7 @@ export const Tab7ProductionReport: React.FC = () => {
               <span>TAB 7: GHI NHẬN SẢN XUẤT XONG (NGHIỆM THU CHUYỀN)</span>
             </h3>
             <span className="text-[11px] text-slate-500 hidden md:inline">
-              | Nhập số đạt &amp; hỏng, Enter lưu và khóa dòng tại chỗ • Bấm Sửa để mở khóa trực tiếp trên ô
+              | Chọn Loại (Thành Phẩm / Bán thành phẩm), nhập số lượng nghiệm thu đạt chuẩn, Enter lưu và khóa dòng tại chỗ • Bấm Sửa để mở khóa trực tiếp trên ô
             </span>
           </div>
 
@@ -679,7 +572,7 @@ export const Tab7ProductionReport: React.FC = () => {
               <span>Xuất Excel</span>
             </button>
 
-            {/* Nút thêm dòng cho PO mới: Tự tăng số thứ tự và lặp lại 2 dòng đạt chuẩn & làm hỏng */}
+            {/* Nút thêm dòng cho PO mới */}
             <button
               type="button"
               onClick={handleAddNewRow}
@@ -691,7 +584,7 @@ export const Tab7ProductionReport: React.FC = () => {
           </div>
         </div>
 
-        {/* Bảng Dữ Liệu Trực Tiếp (Giữ nguyên vị trí dòng, Enter khóa dòng, Sửa mở khóa tại ô) */}
+        {/* Bảng Dữ Liệu Trực Tiếp (1 dòng/bản ghi, Enter khóa dòng, Sửa mở khóa tại ô) */}
         <div ref={gridContainerRef} className="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-[#f4f6f8] text-slate-700 font-bold uppercase text-[11px] sticky top-0 z-10 select-none border-b border-slate-300 shadow-2xs">
@@ -700,6 +593,9 @@ export const Tab7ProductionReport: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[90px]">Ngày BC *</th>
                 <th className="p-2 border-r border-slate-300 min-w-[125px]">Mã PO *</th>
                 <th className="p-2 border-r border-slate-300 min-w-[120px]">Code Vật tư *</th>
+                <th className="p-2 border-r border-slate-300 min-w-[120px] bg-purple-50 text-purple-900 font-bold text-center">
+                  Loại *
+                </th>
                 <th className="p-2 border-r border-slate-300 min-w-[130px] bg-amber-50 text-amber-900 font-bold">
                   Tên Chi Tiết
                 </th>
@@ -707,7 +603,6 @@ export const Tab7ProductionReport: React.FC = () => {
                   Chuyền SX *
                 </th>
                 <th className="p-2 border-r border-slate-300 text-center w-12">ĐVT</th>
-                <th className="p-2 border-r border-slate-300 min-w-[135px]">Phân Loại</th>
 
                 {sizes.map((s) => (
                   <th
@@ -721,7 +616,7 @@ export const Tab7ProductionReport: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[80px] text-right bg-emerald-100 text-emerald-950 font-bold">
                   TỔNG SL
                 </th>
-                <th className="p-2 border-r border-slate-300 min-w-[140px] text-center">Trạng Thái Xử Lý</th>
+                <th className="p-2 border-r border-slate-300 min-w-[110px] text-center">Trạng Thái</th>
                 <th className="p-2 border-r border-slate-300 min-w-[120px]">Ghi Chú</th>
                 <th className="p-2 text-center w-24">Thao Tác</th>
               </tr>
@@ -733,479 +628,388 @@ export const Tab7ProductionReport: React.FC = () => {
                     sum + (typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0),
                   0
                 );
-                const damTotal = sizes.reduce(
-                  (sum, s) =>
-                    sum + (typeof item.damagedQuantities[s] === 'number' ? Number(item.damagedQuantities[s]) : 0),
-                  0
-                );
 
                 const isLocked = !item.isEditing;
-                const rowStt = idx + 1; // Tự động tăng số thứ tự cho bất kỳ dòng nào được thêm
+                const rowStt = idx + 1;
 
                 return (
-                  <React.Fragment key={item.id}>
-                    {/* DÒNG 1: THÀNH PHẨM ĐẠT CHUẨN */}
-                    <tr
-                      className={`transition-colors ${
-                        isLocked ? 'bg-white hover:bg-slate-50' : 'bg-[#f0fdf4]'
-                      } border-t-2 border-slate-300`}
-                    >
-                      {/* Cột STT: Tự động tăng số thứ tự (1, 2, 3...) */}
-                      <td
-                        rowSpan={2}
-                        className="p-2 border-r border-slate-300 text-center font-mono font-bold text-slate-700 bg-white align-middle"
-                      >
-                        {rowStt}
-                      </td>
+                  <tr
+                    key={item.id}
+                    className={`transition-colors ${
+                      isLocked ? 'bg-white hover:bg-slate-50' : 'bg-[#f0fdf4]'
+                    } border-b border-slate-300`}
+                  >
+                    {/* Cột STT */}
+                    <td className="p-2 border-r border-slate-300 text-center font-mono font-bold text-slate-700 bg-white align-middle">
+                      {rowStt}
+                    </td>
 
-                      {/* Ngày báo cáo */}
-                      <td
-                        rowSpan={2}
-                        className="p-0 border-r border-slate-300 align-middle bg-white"
-                      >
-                        {isLocked ? (
-                          <div
-                            onClick={() => handleUnlockRow(item.id)}
-                            className="p-2 font-mono text-slate-700 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
-                            title="Click để sửa"
-                          >
-                            {item.reportDate}
-                          </div>
-                        ) : (
-                          <input
-                            type="text"
-                            value={item.reportDate}
-                            onChange={(e) => handleUpdateItemField(item.id, 'reportDate', e.target.value)}
+                    {/* Ngày báo cáo */}
+                    <td className="p-0 border-r border-slate-300 align-middle bg-white">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-mono text-slate-700 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.reportDate}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={item.reportDate}
+                          onChange={(e) => handleUpdateItemField(item.id, 'reportDate', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          placeholder="DD/MM/YYYY"
+                          className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 font-mono"
+                        />
+                      )}
+                    </td>
+
+                    {/* Mã PO */}
+                    <td className="p-1 border-r border-slate-300 align-middle bg-white">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-1 font-mono font-bold text-sky-700 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.poNumber}
+                        </div>
+                      ) : (
+                        <SearchablePoSelect
+                          value={item.poNumber}
+                          pos={currentCustomerPOs}
+                          rowIdx={idx}
+                          colKey="poNumber"
+                          onChange={(val) => handleUpdateItemField(item.id, 'poNumber', val)}
+                          onSelectPo={(po) => {
+                            if (!item.itemCode && po.style) {
+                              handleUpdateItemField(item.id, 'itemCode', po.style);
+                            }
+                            if (!item.unit && po.unit) {
+                              handleUpdateItemField(item.id, 'unit', po.unit);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          placeholder="Chọn PO..."
+                          className="w-full text-xs font-mono font-bold uppercase text-sky-800"
+                        />
+                      )}
+                    </td>
+
+                    {/* Code Vật tư */}
+                    <td className="p-0 border-r border-slate-300 align-middle bg-white">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.itemCode}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={item.itemCode}
+                          onChange={(e) => handleUpdateItemField(item.id, 'itemCode', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          placeholder="Code Vật tư"
+                          className="w-full h-8 px-2 text-xs font-mono font-bold text-slate-900 uppercase bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
+                        />
+                      )}
+                    </td>
+
+                    {/* Cột Loại *: Dropdown Thành Phẩm / Bán thành phẩm */}
+                    <td className="p-1 border-r border-slate-300 align-middle text-center bg-white min-w-[120px]">
+                      {isLocked ? (
+                        <span
+                          onClick={() => handleUnlockRow(item.id)}
+                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition ${
+                            item.itemType === 'Bán thành phẩm'
+                              ? 'bg-purple-100 text-purple-800 border border-purple-300 hover:bg-purple-200'
+                              : 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                          }`}
+                          title="Click để sửa"
+                        >
+                          {item.itemType || 'Thành Phẩm'}
+                        </span>
+                      ) : (
+                        <select
+                          value={item.itemType || 'Thành Phẩm'}
+                          onChange={(e) => handleUpdateItemField(item.id, 'itemType', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-1 text-xs font-bold border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white cursor-pointer text-slate-800"
+                        >
+                          <option value="Thành Phẩm">Thành Phẩm</option>
+                          <option value="Bán thành phẩm">Bán thành phẩm</option>
+                        </select>
+                      )}
+                    </td>
+
+                    {/* Tên Chi Tiết (Dropdown danh sách vật tư theo từ PO đó) */}
+                    <td className="p-0 border-r border-slate-300 align-middle bg-white min-w-[120px]">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-slate-800 text-xs truncate max-w-[140px] cursor-pointer hover:bg-emerald-50/60 transition-colors font-medium"
+                          title={item.detailName || 'Click để sửa tên chi tiết'}
+                        >
+                          {item.detailName || '-'}
+                        </div>
+                      ) : (
+                        <div className="p-1">
+                          <select
+                            data-row-idx={idx}
+                            data-col-key="detailName"
+                            value={item.detailName || ''}
+                            onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
                             onKeyDown={(e) => {
                               handleCellArrowNavigation(e, gridContainerRef);
                               if (e.key === 'Enter') handleSaveRow(item.id);
                             }}
-                            placeholder="DD/MM/YYYY"
-                            className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 font-mono"
-                          />
-                        )}
-                      </td>
-
-                      {/* Mã PO */}
-                      <td
-                        rowSpan={2}
-                        className="p-1 border-r border-slate-300 align-middle bg-white"
-                      >
-                        {isLocked ? (
-                          <div
-                            onClick={() => handleUnlockRow(item.id)}
-                            className="p-1 font-mono font-bold text-sky-700 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
-                            title="Click để sửa"
+                            className="w-full h-8 px-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white cursor-pointer text-slate-800 font-medium"
                           >
-                            {item.poNumber}
-                          </div>
-                        ) : (
-                          <SearchablePoSelect
-                            value={item.poNumber}
-                            pos={currentCustomerPOs}
-                            rowIdx={idx * 2}
-                            colKey="poNumber"
-                            onChange={(val) => handleUpdateItemField(item.id, 'poNumber', val)}
-                            onSelectPo={(po) => {
-                              if (!item.itemCode && po.style) {
-                                handleUpdateItemField(item.id, 'itemCode', po.style);
-                              }
-                              if (!item.unit && po.unit) {
-                                handleUpdateItemField(item.id, 'unit', po.unit);
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              handleCellArrowNavigation(e, gridContainerRef);
-                              if (e.key === 'Enter') handleSaveRow(item.id);
-                            }}
-                            placeholder="Chọn PO..."
-                            className="w-full text-xs font-mono font-bold uppercase text-sky-800"
-                          />
-                        )}
-                      </td>
+                            <option value="">-- Chọn tên vật tư trong PO --</option>
+                            {getPoDetails(item.poNumber).map((d) => (
+                              <option key={d} value={d}>
+                                {d}
+                              </option>
+                            ))}
+                            {item.detailName && !getPoDetails(item.poNumber).includes(item.detailName) && (
+                              <option value={item.detailName}>{item.detailName}</option>
+                            )}
+                          </select>
+                        </div>
+                      )}
+                    </td>
 
-                      {/* Code Vật tư */}
-                      <td
-                        rowSpan={2}
-                        className="p-0 border-r border-slate-300 align-middle bg-white"
-                      >
-                        {isLocked ? (
-                          <div
-                            onClick={() => handleUnlockRow(item.id)}
-                            className="p-2 font-mono font-bold text-slate-800 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
-                            title="Click để sửa"
-                          >
-                            {item.itemCode}
-                          </div>
-                        ) : (
-                          <input
-                            type="text"
-                            value={item.itemCode}
-                            onChange={(e) => handleUpdateItemField(item.id, 'itemCode', e.target.value)}
-                            onKeyDown={(e) => {
-                              handleCellArrowNavigation(e, gridContainerRef);
-                              if (e.key === 'Enter') handleSaveRow(item.id);
-                            }}
-                            placeholder="Code Vật tư"
-                            className="w-full h-8 px-2 text-xs font-mono font-bold text-slate-900 uppercase bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
-                          />
-                        )}
-                      </td>
+                    {/* Chuyền sản xuất */}
+                    <td className="p-0 border-r border-slate-300 bg-sky-50/40 align-middle">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 font-bold text-sky-900 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.lineId}
+                        </div>
+                      ) : (
+                        <select
+                          value={item.lineId}
+                          onChange={(e) => handleUpdateItemField(item.id, 'lineId', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          {LINE_OPTIONS.map((line) => (
+                            <option key={line} value={line}>
+                              {line}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
 
-                      {/* Tên Chi Tiết (Dropdown danh sách vật tư theo từ PO đó) */}
-                      <td
-                        rowSpan={2}
-                        className="p-0 border-r border-slate-300 align-middle bg-white min-w-[120px]"
-                      >
-                        {isLocked ? (
-                          <div
-                            onClick={() => handleUnlockRow(item.id)}
-                            className="p-2 text-slate-800 text-xs truncate max-w-[140px] cursor-pointer hover:bg-emerald-50/60 transition-colors font-medium"
-                            title={item.detailName || 'Click để sửa tên chi tiết'}
-                          >
-                            {item.detailName || '-'}
-                          </div>
-                        ) : (
-                          <div className="p-1">
-                            <select
-                              data-row-idx={idx * 2}
-                              data-col-key="detailName"
-                              value={item.detailName || ''}
-                              onChange={(e) => handleUpdateItemField(item.id, 'detailName', e.target.value)}
+                    {/* ĐVT */}
+                    <td className="p-0 border-r border-slate-300 text-center align-middle bg-white">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-slate-600 text-center cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.unit}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={item.unit}
+                          onChange={(e) => handleUpdateItemField(item.id, 'unit', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-1 text-xs text-center bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
+                        />
+                      )}
+                    </td>
+
+                    {/* Size columns cho Thành phẩm đạt */}
+                    {sizes.map((s) => {
+                      const val = item.completedQuantities[s];
+                      return (
+                        <td key={s} className="p-0 border-r border-slate-200 text-center">
+                          {isLocked ? (
+                            <div
+                              onClick={() => handleUnlockRow(item.id)}
+                              className={`p-2 font-mono font-bold cursor-pointer hover:bg-emerald-50/60 transition-colors ${
+                                 typeof val === 'number' && val > 0 ? 'text-emerald-900 bg-emerald-50/40' : 'text-slate-300'
+                              }`}
+                              title="Click để sửa"
+                            >
+                              {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
+                            </div>
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              value={val ?? ''}
+                              onChange={(e) => handleUpdateItemSizeQty(item.id, s, e.target.value)}
                               onKeyDown={(e) => {
                                 handleCellArrowNavigation(e, gridContainerRef);
                                 if (e.key === 'Enter') handleSaveRow(item.id);
                               }}
-                              className="w-full h-8 px-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white cursor-pointer text-slate-800 font-medium"
-                            >
-                              <option value="">-- Chọn tên vật tư trong PO --</option>
-                              {getPoDetails(item.poNumber).map((d) => (
-                                <option key={d} value={d}>
-                                  {d}
-                                </option>
-                              ))}
-                              {item.detailName && !getPoDetails(item.poNumber).includes(item.detailName) && (
-                                <option value={item.detailName}>{item.detailName}</option>
-                              )}
-                            </select>
-                          </div>
-                        )}
-                      </td>
+                              onPaste={(e) => handleCellPaste(e, idx, s)}
+                              placeholder="-"
+                              className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-emerald-950 border border-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
 
-                      {/* Chuyền sản xuất */}
-                      <td
-                        rowSpan={2}
-                        className="p-0 border-r border-slate-300 bg-sky-50/40 align-middle"
-                      >
-                        {isLocked ? (
-                          <div
+                    {/* Tổng SL Đạt */}
+                    <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-emerald-50 text-emerald-950">
+                      {compTotal > 0 ? compTotal.toLocaleString('vi-VN') : '-'}
+                    </td>
+
+                    {/* Trạng thái xử lý */}
+                    <td className="p-2 border-r border-slate-200 text-center">
+                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        {item.status || 'Đủ hàng'}
+                      </span>
+                    </td>
+
+                    {/* Ghi chú */}
+                    <td className="p-0 border-r border-slate-300 align-middle bg-white">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-slate-600 text-[11px] truncate max-w-[130px] cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          title="Click để sửa"
+                        >
+                          {item.note || '-'}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={item.note}
+                          onChange={(e) => handleUpdateItemField(item.id, 'note', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          placeholder="Ghi chú (Enter lưu)..."
+                          className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      )}
+                    </td>
+
+                    {/* Thao tác (Khóa dòng có Sửa/Xóa/In, Đang sửa có Lưu) */}
+                    <td className="p-1.5 text-center whitespace-nowrap align-middle bg-white">
+                      {isLocked ? (
+                        <div className="flex items-center justify-center gap-1">
+                          {/* Nút Sửa: Mở khóa sửa trực tiếp ngay trên ô của dòng đó! */}
+                          <button
+                            type="button"
                             onClick={() => handleUnlockRow(item.id)}
-                            className="p-2 font-bold text-sky-900 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
-                            title="Click để sửa"
+                            className="p-1 text-slate-500 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
+                            title="Mở khóa dòng này để sửa trực tiếp trên ô"
                           >
-                            {item.lineId}
-                          </div>
-                        ) : (
-                          <select
-                            value={item.lineId}
-                            onChange={(e) => handleUpdateItemField(item.id, 'lineId', e.target.value)}
-                            onKeyDown={(e) => {
-                              handleCellArrowNavigation(e, gridContainerRef);
-                              if (e.key === 'Enter') handleSaveRow(item.id);
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Nút Xóa */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRow(item)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                            title="Xóa báo cáo này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Nút In */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cNum: Record<string, number> = {};
+                              sizes.forEach((s) => {
+                                cNum[s] = typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0;
+                              });
+                              setSelectedForPrint({
+                                id: item.id,
+                                customerId: currentCustomer?.id || '',
+                                reportDate: item.reportDate,
+                                poNumber: item.poNumber,
+                                itemCode: item.itemCode,
+                                itemType: item.itemType,
+                                detailName: item.detailName,
+                                lineId: item.lineId,
+                                unit: item.unit,
+                                completedQuantities: cNum,
+                                damagedQuantities: {},
+                                compensationFromStock: {},
+                                compensationFromCustomer: {},
+                                status: item.status as any,
+                                note: item.note,
+                              });
+                              setShowPrintModal(true);
                             }}
-                            className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition cursor-pointer"
+                            title="In phiếu này"
                           >
-                            {LINE_OPTIONS.map((line) => (
-                              <option key={line} value={line}>
-                                {line}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </td>
-
-                      {/* ĐVT */}
-                      <td
-                        rowSpan={2}
-                        className="p-0 border-r border-slate-300 text-center align-middle bg-white"
-                      >
-                        {isLocked ? (
-                          <div
-                            onClick={() => handleUnlockRow(item.id)}
-                            className="p-2 text-slate-600 text-center cursor-pointer hover:bg-emerald-50/60 transition-colors"
-                            title="Click để sửa"
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-1">
+                          {/* Nút Lưu & Khóa dòng */}
+                          <button
+                            type="button"
+                            onClick={() => handleSaveRow(item.id)}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-1"
+                            title="Lưu dữ liệu và khóa dòng lại (Enter)"
                           >
-                            {item.unit}
-                          </div>
-                        ) : (
-                          <input
-                            type="text"
-                            value={item.unit}
-                            onChange={(e) => handleUpdateItemField(item.id, 'unit', e.target.value)}
-                            onKeyDown={(e) => {
-                              handleCellArrowNavigation(e, gridContainerRef);
-                              if (e.key === 'Enter') handleSaveRow(item.id);
-                            }}
-                            className="w-full h-8 px-1 text-xs text-center bg-transparent border-0 focus:ring-1 focus:ring-emerald-500"
-                          />
-                        )}
-                      </td>
+                            <Save className="w-3 h-3" />
+                            <span>Lưu</span>
+                          </button>
 
-                      {/* Phân loại: 1. Đạt chuẩn (Nhập) */}
-                      <td className="p-2 border-r border-slate-200 font-bold text-emerald-800 flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        <span>1. Đạt chuẩn (Nhập)</span>
-                      </td>
-
-                      {/* Size columns cho Thành phẩm đạt */}
-                      {sizes.map((s) => {
-                        const val = item.completedQuantities[s];
-                        return (
-                          <td key={s} className="p-0 border-r border-slate-200 text-center">
-                            {isLocked ? (
-                              <div
-                                onClick={() => handleUnlockRow(item.id)}
-                                className={`p-2 font-mono font-bold cursor-pointer hover:bg-emerald-50/60 transition-colors ${
-                                   typeof val === 'number' && val > 0 ? 'text-emerald-900 bg-emerald-50/40' : 'text-slate-300'
-                                }`}
-                                title="Click để sửa"
-                              >
-                                {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
-                              </div>
-                            ) : (
-                              <input
-                                type="number"
-                                min="0"
-                                value={val ?? ''}
-                                onChange={(e) => handleUpdateItemSizeQty(item.id, 'completed', s, e.target.value)}
-                                onKeyDown={(e) => {
-                                  handleCellArrowNavigation(e, gridContainerRef);
-                                  if (e.key === 'Enter') handleSaveRow(item.id);
-                                }}
-                                onPaste={(e) => handleCellPaste(e, idx, 'completed', s)}
-                                placeholder="-"
-                                className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-emerald-950 border border-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                              />
-                            )}
-                          </td>
-                        );
-                      })}
-
-                      {/* Tổng SL Đạt */}
-                      <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-emerald-50 text-emerald-950">
-                        {compTotal > 0 ? compTotal.toLocaleString('vi-VN') : '-'}
-                      </td>
-
-                      {/* Trạng thái xử lý */}
-                      <td className="p-2 border-r border-slate-200 text-center">
-                        {isLocked ? (
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                              item.status === 'Đủ hàng'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : item.status === 'Xuất bù từ kho'
-                                ? 'bg-purple-100 text-purple-800 border border-purple-300'
-                                : 'bg-rose-100 text-rose-800 border border-rose-300'
-                            }`}
+                          {/* Nút Xóa dòng nháp */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRow(item)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
+                            title="Hủy/Xóa dòng này"
                           >
-                            {item.status}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-semibold text-emerald-700">
-                            Tồn Tab 5 trừ tự động
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Ghi chú */}
-                      <td
-                        rowSpan={2}
-                        className="p-0 border-r border-slate-300 align-middle bg-white"
-                      >
-                        {isLocked ? (
-                          <div
-                            onClick={() => handleUnlockRow(item.id)}
-                            className="p-2 text-slate-600 text-[11px] truncate max-w-[130px] cursor-pointer hover:bg-emerald-50/60 transition-colors"
-                            title="Click để sửa"
-                          >
-                            {item.note || '-'}
-                          </div>
-                        ) : (
-                          <input
-                            type="text"
-                            value={item.note}
-                            onChange={(e) => handleUpdateItemField(item.id, 'note', e.target.value)}
-                            onKeyDown={(e) => {
-                              handleCellArrowNavigation(e, gridContainerRef);
-                              if (e.key === 'Enter') handleSaveRow(item.id);
-                            }}
-                            placeholder="Ghi chú nguyên nhân hỏng (Enter lưu)..."
-                            className="w-full h-8 px-2 text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          />
-                        )}
-                      </td>
-
-                      {/* Thao tác (Khóa dòng có Sửa/Xóa, Đang sửa có Lưu) */}
-                      <td
-                        rowSpan={2}
-                        className="p-1.5 text-center whitespace-nowrap align-middle bg-white"
-                      >
-                        {isLocked ? (
-                          <div className="flex items-center justify-center gap-1">
-                            {/* Nút Sửa: Mở khóa sửa trực tiếp ngay trên ô của dòng đó! */}
-                            <button
-                              type="button"
-                              onClick={() => handleUnlockRow(item.id)}
-                              className="p-1 text-slate-500 hover:text-sky-600 rounded hover:bg-sky-50 transition cursor-pointer"
-                              title="Mở khóa dòng này để sửa trực tiếp trên ô"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Nút Xóa */}
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRow(item)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
-                              title="Xóa báo cáo này"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Nút In */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const cNum: Record<string, number> = {};
-                                sizes.forEach((s) => {
-                                  cNum[s] = typeof item.completedQuantities[s] === 'number' ? Number(item.completedQuantities[s]) : 0;
-                                });
-                                setSelectedForPrint({
-                                  id: item.id,
-                                  customerId: currentCustomer?.id || '',
-                                  reportDate: item.reportDate,
-                                  poNumber: item.poNumber,
-                                  itemCode: item.itemCode,
-                                  lineId: item.lineId,
-                                  unit: item.unit,
-                                  completedQuantities: cNum,
-                                  damagedQuantities: {},
-                                  compensationFromStock: {},
-                                  compensationFromCustomer: {},
-                                  status: item.status as any,
-                                  note: item.note,
-                                });
-                                setShowPrintModal(true);
-                              }}
-                              className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition cursor-pointer"
-                              title="In phiếu này"
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center gap-1">
-                            {/* Nút Lưu & Khóa dòng */}
-                            <button
-                              type="button"
-                              onClick={() => handleSaveRow(item.id)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-1"
-                              title="Lưu dữ liệu và khóa dòng lại (Enter)"
-                            >
-                              <Save className="w-3 h-3" />
-                              <span>Lưu</span>
-                            </button>
-
-                            {/* Nút Xóa dòng nháp */}
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRow(item)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
-                              title="Hủy/Xóa dòng này"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-
-                    {/* DÒNG 2: SỐ LƯỢNG LÀM HƯ HỎNG */}
-                    <tr
-                      className={`transition-colors ${
-                        isLocked ? 'bg-[#fff5f5]/60 hover:bg-[#ffe4e6]/50' : 'bg-[#fff1f2]'
-                      } border-b border-slate-300`}
-                    >
-                      <td className="p-2 border-r border-slate-200 font-bold text-rose-800 flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                        <span>2. Làm hỏng (nếu có)</span>
-                      </td>
-
-                      {/* Size columns cho Làm hỏng */}
-                      {sizes.map((s) => {
-                        const val = item.damagedQuantities[s];
-                        return (
-                          <td key={s} className="p-0 border-r border-slate-200 text-center">
-                            {isLocked ? (
-                              <div
-                                onClick={() => handleUnlockRow(item.id)}
-                                className={`p-2 font-mono font-bold cursor-pointer hover:bg-rose-100/60 transition-colors ${
-                                  typeof val === 'number' && val > 0 ? 'text-rose-900 bg-rose-100/60' : 'text-slate-300'
-                                }`}
-                                title="Click để sửa"
-                              >
-                                {typeof val === 'number' && val > 0 ? val.toLocaleString('vi-VN') : '-'}
-                              </div>
-                            ) : (
-                              <input
-                                type="number"
-                                min="0"
-                                value={val ?? ''}
-                                onChange={(e) => handleUpdateItemSizeQty(item.id, 'damaged', s, e.target.value)}
-                                onKeyDown={(e) => {
-                                  handleCellArrowNavigation(e, gridContainerRef);
-                                  if (e.key === 'Enter') handleSaveRow(item.id);
-                                }}
-                                onPaste={(e) => handleCellPaste(e, idx, 'damaged', s)}
-                                placeholder="-"
-                                className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-white text-rose-950 border border-rose-200 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                              />
-                            )}
-                          </td>
-                        );
-                      })}
-
-                      {/* Tổng SL Hỏng */}
-                      <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-xs bg-rose-50 text-rose-950">
-                        {damTotal > 0 ? damTotal.toLocaleString('vi-VN') : '-'}
-                      </td>
-
-                      {/* Kết quả bù hỏng */}
-                      <td className="p-2 border-r border-slate-200 text-center text-[10px] text-slate-600">
-                        {damTotal > 0 ? (
-                          <span>
-                            Kho bù:{' '}
-                            <strong>
-                              {sizes.reduce((s, k) => s + (item.compensationFromStock[k] || 0), 0)}
-                            </strong>{' '}
-                            | KH bù:{' '}
-                            <strong>
-                              {sizes.reduce((s, k) => s + (item.compensationFromCustomer[k] || 0), 0)}
-                            </strong>
-                          </span>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                    </tr>
-                  </React.Fragment>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
                 );
               })}
 
               {/* DÒNG TỔNG CỘNG TOÀN BỘ BẢNG */}
               <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
                 <td colSpan={8} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
-                  TỔNG CỘNG THÀNH PHẨM ĐÃ NGHIỆM THU:
+                  TỔNG CỘNG ĐÃ NGHIỆM THU:
                 </td>
                 {sizes.map((s) => {
                   const sComp = filteredItems.reduce(

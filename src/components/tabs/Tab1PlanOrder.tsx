@@ -27,12 +27,13 @@ export interface Tab1PlanItem {
   isEditing: boolean;
   receiptDate: string;
   poNumber: string;
+  round?: number;
   itemCode: string;
   voucherCode: string;
   description: string;
   unit: string;
   sizeQuantities: Record<string, number | ''>;
-  status?: 'Hàng đơn' | 'Hàng bù';
+  status?: 'Hàng đơn' | 'Hàng bù (mua)' | 'Hàng bù';
   note: string;
 }
 
@@ -67,6 +68,7 @@ export const Tab1PlanOrder: React.FC = () => {
       isEditing,
       receiptDate: defaultDate,
       poNumber: '',
+      round: 1,
       itemCode: '',
       voucherCode: '',
       description: '',
@@ -93,12 +95,13 @@ export const Tab1PlanOrder: React.FC = () => {
           isEditing: false, // Mặc định khóa dòng
           receiptDate: p.receiptDate,
           poNumber: p.poNumber,
+          round: p.round || 1,
           itemCode: p.itemCode,
           voucherCode: p.voucherCode || '',
           description: p.description || '',
           unit: p.unit || 'PRS',
           sizeQuantities: sq,
-          status: p.status || 'Hàng đơn',
+          status: p.status === 'Hàng bù' ? 'Hàng bù (mua)' : (p.status || 'Hàng đơn'),
           note: p.note || '',
         };
       });
@@ -132,12 +135,13 @@ export const Tab1PlanOrder: React.FC = () => {
           isEditing: false,
           receiptDate: p.receiptDate,
           poNumber: p.poNumber,
+          round: p.round || 1,
           itemCode: p.itemCode,
           voucherCode: p.voucherCode || '',
           description: p.description || '',
           unit: p.unit || 'PRS',
           sizeQuantities: sq,
-          status: p.status || 'Hàng đơn',
+          status: p.status === 'Hàng bù' ? 'Hàng bù (mua)' : (p.status || 'Hàng đơn'),
           note: p.note || '',
         };
       });
@@ -207,8 +211,8 @@ export const Tab1PlanOrder: React.FC = () => {
     );
   };
 
-  // Cập nhật trạng thái tức thời (Hàng đơn <-> Hàng bù) và tự động lưu đồng bộ
-  const handleStatusChange = (id: string, newStatus: 'Hàng đơn' | 'Hàng bù') => {
+  // Cập nhật trạng thái tức thời (Hàng đơn <-> Hàng bù (mua)) và tự động lưu đồng bộ
+  const handleStatusChange = (id: string, newStatus: 'Hàng đơn' | 'Hàng bù (mua)') => {
     handleUpdateItemField(id, 'status', newStatus);
     const existing = currentCustomerPlanOrders.find((p) => p.id === id);
     if (existing) {
@@ -243,6 +247,7 @@ export const Tab1PlanOrder: React.FC = () => {
       customerId: currentCustomer?.id || '',
       receiptDate: item.receiptDate.trim() || defaultDate,
       poNumber: item.poNumber.trim().toUpperCase(),
+      round: item.round || 1,
       itemCode: item.itemCode.trim().toUpperCase(),
       voucherCode: item.voucherCode.trim() || undefined,
       description: item.description.trim() || `Vật tư ${item.itemCode}`,
@@ -273,7 +278,7 @@ export const Tab1PlanOrder: React.FC = () => {
       )
     );
 
-    toast(`🔒 Đã lưu & khóa dòng PO ${planData.poNumber} thành công! Nhấn Sửa ✏️ để mở khóa sửa lại.`);
+    toast(`🔒 Đã lưu & khóa dòng PO ${planData.poNumber} (Lần ${planData.round || 1}) thành công! Nhấn Sửa ✏️ để mở khóa sửa lại.`);
   };
 
   // Xóa dòng
@@ -297,6 +302,7 @@ export const Tab1PlanOrder: React.FC = () => {
   const draftColumns = useMemo(() => [
     { key: 'receiptDate', type: 'date' as const },
     { key: 'poNumber', type: 'text' as const },
+    { key: 'round', type: 'number' as const },
     { key: 'itemCode', type: 'text' as const },
     { key: 'status', type: 'status' as const },
     { key: 'voucherCode', type: 'text' as const },
@@ -373,6 +379,8 @@ export const Tab1PlanOrder: React.FC = () => {
 
         if (colDef.type === 'date') {
           if (rawVal) targetRow.receiptDate = rawVal;
+        } else if (colDef.type === 'number' || colDef.key === 'round') {
+          targetRow.round = Math.max(1, parseInt(rawVal) || 1);
         } else if (colDef.type === 'text') {
           if (colDef.key === 'poNumber') targetRow.poNumber = rawVal.toUpperCase();
           else if (colDef.key === 'itemCode') {
@@ -383,7 +391,7 @@ export const Tab1PlanOrder: React.FC = () => {
         } else if (colDef.type === 'unit') {
           if (rawVal) targetRow.unit = rawVal;
         } else if (colDef.type === 'status') {
-          targetRow.status = /bù/i.test(rawVal) ? 'Hàng bù' : 'Hàng đơn';
+          targetRow.status = /bù/i.test(rawVal) ? 'Hàng bù (mua)' : 'Hàng đơn';
         } else if (colDef.type === 'size') {
           const sizeName = colDef.size!;
           if (rawVal === '' || rawVal === '-') {
@@ -441,13 +449,14 @@ export const Tab1PlanOrder: React.FC = () => {
       'STT',
       'Ngày Nhận',
       'Mã PO',
+      'Lần',
       'Code Vật tư',
+      'Trạng Thái',
       'Số Phiếu Giao',
       'Quy Cách / Diễn Giải',
       'ĐVT',
       ...sizes.map((s) => `Size ${s}`),
       'Tổng SL Kế Hoạch',
-      'Trạng Thái',
       'Ghi Chú',
     ];
 
@@ -455,13 +464,14 @@ export const Tab1PlanOrder: React.FC = () => {
       idx + 1,
       p.receiptDate,
       p.poNumber,
+      p.round || 1,
       p.itemCode,
+      p.status || 'Hàng đơn',
       p.voucherCode,
       p.description,
       p.unit,
       ...sizes.map((s) => (typeof p.sizeQuantities[s] === 'number' ? p.sizeQuantities[s] : 0)),
       getItemTotal(p),
-      p.status || 'Hàng đơn',
       p.note || '',
     ]);
 
@@ -599,8 +609,11 @@ export const Tab1PlanOrder: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 text-center w-9">#</th>
                 <th className="p-2 border-r border-slate-300 min-w-[95px]">Ngày Nhận *</th>
                 <th className="p-2 border-r border-slate-300 min-w-[130px]">Mã PO *</th>
+                <th className="p-2 border-r border-slate-300 text-center w-14 bg-amber-50/80 text-amber-950 font-bold">
+                  Lần
+                </th>
                 <th className="p-2 border-r border-slate-300 min-w-[125px]">Code Vật tư *</th>
-                <th className="p-2 border-r border-slate-300 min-w-[105px] text-center bg-indigo-50/80 text-indigo-900 font-bold">
+                <th className="p-2 border-r border-slate-300 min-w-[125px] text-center bg-indigo-50/80 text-indigo-900 font-bold">
                   Trạng Thái
                 </th>
                 <th className="p-2 border-r border-slate-300 min-w-[110px]">Số Phiếu Giao</th>
@@ -695,6 +708,35 @@ export const Tab1PlanOrder: React.FC = () => {
                       )}
                     </td>
 
+                    {/* Cột Lần */}
+                    <td className="p-0 border-r border-slate-200 text-center bg-amber-50/20">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-2 text-center font-mono font-bold text-amber-900 whitespace-nowrap cursor-pointer hover:bg-amber-100/50 transition-colors"
+                          title="Click để sửa Lần"
+                        >
+                          Lần {item.round || 1}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          min="1"
+                          data-row-idx={idx}
+                          data-col-key="round"
+                          value={item.round ?? 1}
+                          onChange={(e) =>
+                            handleUpdateItemField(item.id, 'round', Math.max(1, parseInt(e.target.value) || 1))
+                          }
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:bg-white text-amber-900"
+                        />
+                      )}
+                    </td>
+
                     {/* Code Vật tư (trước là Mã hàng TT) */}
                     <td className="p-0 border-r border-slate-200">
                       {isLocked ? (
@@ -718,27 +760,27 @@ export const Tab1PlanOrder: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Trạng Thái (Dropdown: Hàng đơn hoặc Hàng bù) */}
+                    {/* Trạng Thái (Dropdown: Hàng đơn hoặc Hàng bù (mua)) */}
                     <td className="p-0 border-r border-slate-200 text-center bg-indigo-50/20">
                       <select
                         data-row-idx={idx}
                         data-col-key="status"
-                        value={item.status || 'Hàng đơn'}
+                        value={item.status === 'Hàng bù' ? 'Hàng bù (mua)' : (item.status || 'Hàng đơn')}
                         onChange={(e) =>
-                          handleStatusChange(item.id, e.target.value as 'Hàng đơn' | 'Hàng bù')
+                          handleStatusChange(item.id, e.target.value as 'Hàng đơn' | 'Hàng bù (mua)')
                         }
                         onKeyDown={(e) => {
                           handleCellArrowNavigation(e, gridContainerRef);
                           if (e.key === 'Enter') handleSaveRow(item.id);
                         }}
                         className={`w-full h-8 px-1 text-xs font-semibold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white cursor-pointer text-center ${
-                          item.status === 'Hàng bù'
+                          item.status === 'Hàng bù (mua)' || item.status === 'Hàng bù'
                             ? 'text-purple-800 font-bold bg-purple-50'
                             : 'text-sky-800 font-bold'
                         }`}
                       >
                         <option value="Hàng đơn">Hàng đơn</option>
-                        <option value="Hàng bù">Hàng bù</option>
+                        <option value="Hàng bù (mua)">Hàng bù (mua)</option>
                       </select>
                     </td>
 

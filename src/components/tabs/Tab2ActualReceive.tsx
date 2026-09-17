@@ -27,6 +27,7 @@ export interface Tab2WorkingRow {
   isNew?: boolean;
   receiptDate: string;
   poNumber: string;
+  round?: number;
   itemCode: string;
   voucherCode: string;
   description: string;
@@ -34,7 +35,7 @@ export interface Tab2WorkingRow {
   planTotalQty: number;
   planSizeQuantities: Record<string, number>;
   sizeQuantities: Record<string, number | ''>;
-  status?: 'Hàng đơn' | 'Hàng bù';
+  status?: 'Hàng đơn' | 'Hàng bù (mua)' | 'Hàng bù';
   note: string;
 }
 
@@ -54,6 +55,7 @@ const createNewTab2RowHelper = (
     isNew: true,
     receiptDate: defDate,
     poNumber: `PO-${String(rowNum).padStart(2, '0')}`,
+    round: 1,
     itemCode: `VT-${String(rowNum).padStart(2, '0')}`,
     voucherCode: '',
     description: '',
@@ -93,6 +95,7 @@ const buildInitialWorkingRows = (
       isNew: false,
       receiptDate: existing?.receiptDate || plan.receiptDate,
       poNumber: existing?.poNumber || plan.poNumber,
+      round: existing?.round || plan.round || 1,
       itemCode: existing?.itemCode || plan.itemCode,
       voucherCode: existing?.voucherCode || plan.voucherCode || '',
       description: existing?.description || plan.description || '',
@@ -100,7 +103,9 @@ const buildInitialWorkingRows = (
       planTotalQty: plan.totalQty || 0,
       planSizeQuantities: plan.sizeQuantities || {},
       sizeQuantities: sq,
-      status: existing?.status || plan.status || 'Hàng đơn',
+      status: (existing?.status === 'Hàng bù' || plan.status === 'Hàng bù')
+        ? 'Hàng bù (mua)'
+        : (existing?.status || plan.status || 'Hàng đơn'),
       note: existing?.note || plan.note || '',
     };
   });
@@ -395,6 +400,7 @@ export const Tab2ActualReceive: React.FC = () => {
           customerId: currentCustomer.id,
           receiptDate: row.receiptDate || defaultDate,
           poNumber: row.poNumber.trim() || `PO-${String(idx + 1).padStart(2, '0')}`,
+          round: row.round || 1,
           itemCode: row.itemCode.trim() || `VT-${String(idx + 1).padStart(2, '0')}`,
           voucherCode: row.voucherCode.trim(),
           description: row.description.trim() || `Vật tư ${row.itemCode.trim()}`,
@@ -407,10 +413,11 @@ export const Tab2ActualReceive: React.FC = () => {
         };
         newPlanOrdersToCreate.push(newPlan);
       } else {
-        // Nếu có sửa đổi bất kỳ thông tin nào (kể cả trạng thái Hàng đơn / Hàng bù)
+        // Nếu có sửa đổi bất kỳ thông tin nào (kể cả trạng thái Hàng đơn / Hàng bù (mua))
         if (
           existingPlan.status !== row.status ||
           existingPlan.poNumber !== row.poNumber ||
+          existingPlan.round !== row.round ||
           existingPlan.itemCode !== row.itemCode ||
           existingPlan.receiptDate !== row.receiptDate ||
           existingPlan.voucherCode !== row.voucherCode ||
@@ -421,6 +428,7 @@ export const Tab2ActualReceive: React.FC = () => {
             ...existingPlan,
             status: row.status || existingPlan.status || 'Hàng đơn',
             poNumber: row.poNumber.trim() || existingPlan.poNumber,
+            round: row.round || existingPlan.round || 1,
             itemCode: row.itemCode.trim() || existingPlan.itemCode,
             receiptDate: row.receiptDate || existingPlan.receiptDate,
             voucherCode: row.voucherCode,
@@ -436,6 +444,7 @@ export const Tab2ActualReceive: React.FC = () => {
         customerId: currentCustomer.id,
         receiptDate: row.receiptDate || defaultDate,
         poNumber: row.poNumber.trim(),
+        round: row.round || 1,
         itemCode: row.itemCode.trim(),
         voucherCode: row.voucherCode.trim(),
         description: row.description.trim(),
@@ -695,6 +704,7 @@ export const Tab2ActualReceive: React.FC = () => {
       'STT',
       'Ngày Nhận',
       'Mã PO',
+      'Lần',
       'Code Vật tư',
       'Trạng Thái',
       'Số Phiếu KH',
@@ -710,6 +720,7 @@ export const Tab2ActualReceive: React.FC = () => {
       idx + 1,
       r.receiptDate,
       r.poNumber,
+      r.round || 1,
       r.itemCode,
       r.status || 'Hàng đơn',
       r.voucherCode,
@@ -877,8 +888,11 @@ export const Tab2ActualReceive: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 text-center w-8">#</th>
                 <th className="p-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-slate-600">Ngày Nhận</th>
                 <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-600">Mã PO</th>
+                <th className="p-2 border-r border-slate-300 text-center w-14 bg-amber-50/80 text-amber-950 font-bold">
+                  Lần
+                </th>
                 <th className="p-2 border-r border-slate-300 min-w-[120px] bg-slate-100 text-slate-600">Code Vật tư</th>
-                <th className="p-2 border-r border-slate-300 min-w-[105px] text-center bg-indigo-50/80 text-indigo-900 font-bold">
+                <th className="p-2 border-r border-slate-300 min-w-[125px] text-center bg-indigo-50/80 text-indigo-900 font-bold">
                   Trạng Thái
                 </th>
                 <th className="p-2 border-r border-slate-300 min-w-[115px] bg-slate-100 text-slate-600">Số Phiếu KH</th>
@@ -907,7 +921,7 @@ export const Tab2ActualReceive: React.FC = () => {
             <tbody className="divide-y divide-slate-200 font-sans">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7 + sizes.length + 4} className="p-8 text-center text-slate-400 text-xs italic">
+                  <td colSpan={8 + sizes.length + 4} className="p-8 text-center text-slate-400 text-xs italic">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <p>Chưa có dòng dữ liệu thực nhận nào.</p>
                       <button
@@ -968,6 +982,26 @@ export const Tab2ActualReceive: React.FC = () => {
                         />
                       </td>
 
+                      {/* Cột Lần */}
+                      <td className="p-0 border-r border-slate-200 text-center bg-amber-50/20">
+                        <input
+                          type="number"
+                          min="1"
+                          data-row-id={row.id}
+                          data-row-idx={idx}
+                          data-col-key="round"
+                          value={row.round ?? 1}
+                          onChange={(e) =>
+                            handleUpdateRowField(row.id, 'round', Math.max(1, parseInt(e.target.value) || 1))
+                          }
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveAllActuals();
+                          }}
+                          className="w-full h-8 px-1 text-center font-mono font-bold text-xs bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:bg-white text-amber-900"
+                        />
+                      </td>
+
                       {/* Code Vật tư */}
                       <td className="p-0 border-r border-slate-200 bg-slate-50/50">
                         <input
@@ -986,25 +1020,27 @@ export const Tab2ActualReceive: React.FC = () => {
                         />
                       </td>
 
-                      {/* Trạng Thái (Dropdown: Hàng đơn hoặc Hàng bù) */}
+                      {/* Trạng Thái (Dropdown: Hàng đơn hoặc Hàng bù (mua)) */}
                       <td className="p-0 border-r border-slate-200 bg-indigo-50/20 text-center">
                         <select
                           data-row-idx={idx}
                           data-col-key="status"
-                          value={row.status || 'Hàng đơn'}
+                          value={row.status === 'Hàng bù' ? 'Hàng bù (mua)' : (row.status || 'Hàng đơn')}
                           onChange={(e) =>
-                            handleUpdateRowField(row.id, 'status', e.target.value as 'Hàng đơn' | 'Hàng bù')
+                            handleUpdateRowField(row.id, 'status', e.target.value as 'Hàng đơn' | 'Hàng bù (mua)')
                           }
                           onKeyDown={(e) => {
                             handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveAllActuals();
                           }}
                           className={`w-full h-8 px-1 text-xs font-semibold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white cursor-pointer text-center ${
-                            row.status === 'Hàng bù' ? 'text-purple-800 font-bold bg-purple-50' : 'text-sky-800 font-bold'
+                            row.status === 'Hàng bù (mua)' || row.status === 'Hàng bù'
+                              ? 'text-purple-800 font-bold bg-purple-50'
+                              : 'text-sky-800 font-bold'
                           }`}
                         >
                           <option value="Hàng đơn">Hàng đơn</option>
-                          <option value="Hàng bù">Hàng bù</option>
+                          <option value="Hàng bù (mua)">Hàng bù (mua)</option>
                         </select>
                       </td>
 

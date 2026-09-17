@@ -877,122 +877,90 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [finishedGoodsDeliveries, selectedCustomerId]
   );
 
-  // TAB 3: TỰ ĐỘNG TÍNH CHÊNH LỆCH = TỔNG THỰC NHẬN LŨY KẾ (TAB 2) - KẾ HOẠCH ĐƠN GỐC (TAB 1)
-  // GROUP BY THEO MÃ PO (PO LÀ KHÓA CHÍNH DUY NHẤT)
+  // TAB 3: TỰ ĐỘNG TÍNH CHÊNH LỆCH
+  // - ĐƠN GỐC (Hàng đơn): Kế hoạch gốc chốt theo Lần 1. Tổng thực nhận lũy kế cộng dồn các lần (Lần 1, 2, 3...). Chênh lệch về 0 khi đủ.
+  // - HÀNG BÙ (MUA): Lưu trữ như một vật tư riêng biệt, tách dòng độc lập, không gộp vào đơn gốc vì sản xuất lại từ đầu.
   const currentCustomerDiscrepancies: DiscrepancyRow[] = useMemo(() => {
-    // 1. Thu thập toàn bộ danh sách PO duy nhất từ Tab 1 (Kế hoạch) và Tab 2 (Thực nhận)
-    const allPoNumbers = Array.from(
+    const isComp = (status?: string) => status === 'Hàng bù (mua)' || status === 'Hàng bù';
+
+    // 1. Phân tách danh sách đơn hàng kế hoạch và thực nhận
+    const regularPlans = currentCustomerPlanOrders.filter((p) => !isComp(p.status));
+    const compPlans = currentCustomerPlanOrders.filter((p) => isComp(p.status));
+
+    const regularActuals = currentCustomerActualReceives.filter((a) => !isComp(a.status));
+    const compActuals = currentCustomerActualReceives.filter((a) => isComp(a.status));
+
+    // A. XỬ LÝ NHÓM ĐƠN GỐC (HÀNG ĐƠN) THEO MÃ PO
+    const regularPoNumbers = Array.from(
       new Set([
-        ...currentCustomerPlanOrders.map((p) => (p.poNumber || '').trim().toUpperCase()),
-        ...currentCustomerActualReceives.map((a) => (a.poNumber || '').trim().toUpperCase()),
+        ...regularPlans.map((p) => (p.poNumber || '').trim().toUpperCase()),
+        ...regularActuals.map((a) => (a.poNumber || '').trim().toUpperCase()),
       ])
     ).filter(Boolean);
 
-    return allPoNumbers.map((poNum) => {
-      // Gom tất cả dòng kế hoạch Tab 1 của PO này
-      const matchingPlans = currentCustomerPlanOrders.filter(
-        (p) => (p.poNumber || '').trim().toUpperCase() === poNum
-      );
-      // Gom tất cả dòng thực nhận Tab 2 của PO này
+    const regularRows: DiscrepancyRow[] = regularPoNumbers.map((poNum) => {
+      // Gom tất cả dòng kế hoạch Hàng đơn của PO này
+      const matchingPlans = regularPlans
+        .filter((p) => (p.poNumber || '').trim().toUpperCase() === poNum)
+        .sort((a, b) => (a.round || 1) - (b.round || 1));
+
+      // Gom tất cả dòng thực nhận Hàng đơn của PO này
       const matchingPlanIds = new Set(matchingPlans.map((p) => p.id));
-      const matchingActuals = currentCustomerActualReceives.filter(
-        (a) =>
-          (a.poNumber || '').trim().toUpperCase() === poNum ||
-          (a.planOrderId && matchingPlanIds.has(a.planOrderId))
-      );
+      const matchingActuals = regularActuals
+        .filter(
+          (a) =>
+            (a.poNumber || '').trim().toUpperCase() === poNum ||
+            (a.planOrderId && matchingPlanIds.has(a.planOrderId))
+        )
+        .sort((a, b) => (a.round || 1) - (b.round || 1));
 
-      // Phân tách giữa Hàng đơn gốc và Hàng giao bù:
-      // A. Tab 1: Kế hoạch đơn gốc (Mục tiêu của PO cần nhận đủ)
-      const originalPlans = matchingPlans.filter((p) => (p.status || 'Hàng đơn') !== 'Hàng bù');
-      const compPlans = matchingPlans.filter((p) => p.status === 'Hàng bù');
+      // Kế hoạch gốc của PO: Lấy theo Lần 1 (round === 1 hoặc dòng đầu tiên)
+      const round1Plans = matchingPlans.filter((p) => (p.round || 1) === 1);
+      const basePlans = round1Plans.length > 0 ? round1Plans : matchingPlans.slice(0, 1);
 
-      // B. Tab 2: Thực nhận đơn gốc & Thực nhận hàng bù
-      const originalActuals = matchingActuals.filter((a) => (a.status || 'Hàng đơn') !== 'Hàng bù');
-      const compActuals = matchingActuals.filter((a) => a.status === 'Hàng bù');
-
-      // 1. Tổng hợp size kế hoạch GỐC (Chỉ lấy các dòng Hàng đơn)
       const planSizes: Record<string, number> = {};
       let totalPlan = 0;
-      originalPlans.forEach((plan) => {
+      basePlans.forEach((plan) => {
         Object.entries(plan.sizeQuantities || {}).forEach(([s, q]) => {
           const num = Number(q) || 0;
           planSizes[s] = (planSizes[s] || 0) + num;
           totalPlan += num;
         });
       });
-      if (totalPlan === 0 && originalPlans.length > 0) {
-        totalPlan = originalPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
+      if (totalPlan === 0 && basePlans.length > 0) {
+        totalPlan = basePlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
       }
 
-      // 2. Tổng hợp size phiếu bù (Tab 1 Hàng bù)
-      let compensationPlanQty = 0;
-      compPlans.forEach((plan) => {
-        Object.entries(plan.sizeQuantities || {}).forEach(([, q]) => {
-          compensationPlanQty += Number(q) || 0;
-        });
-      });
-      if (compensationPlanQty === 0 && compPlans.length > 0) {
-        compensationPlanQty = compPlans.reduce((sum, p) => sum + (Number(p.totalQty) || 0), 0);
-      }
-
-      // 3. Tổng hợp size thực nhận GỐC (Tab 2 Hàng đơn)
-      let originalActualQty = 0;
-      originalActuals.forEach((actual) => {
-        Object.entries(actual.sizeQuantities || {}).forEach(([, q]) => {
-          originalActualQty += Number(q) || 0;
-        });
-      });
-      if (originalActualQty === 0 && originalActuals.length > 0) {
-        originalActualQty = originalActuals.reduce((sum, a) => sum + (Number(a.totalQty) || 0), 0);
-      }
-
-      // 4. Tổng hợp size thực nhận BÙ (Tab 2 Hàng bù)
-      let compensationActualQty = 0;
-      compActuals.forEach((actual) => {
-        Object.entries(actual.sizeQuantities || {}).forEach(([, q]) => {
-          compensationActualQty += Number(q) || 0;
-        });
-      });
-      if (compensationActualQty === 0 && compActuals.length > 0) {
-        compensationActualQty = compActuals.reduce((sum, a) => sum + (Number(a.totalQty) || 0), 0);
-      }
-
-      // 5. TỔNG THỰC NHẬN LŨY KẾ = Thực nhận gốc + Thực nhận hàng bù
+      // Tổng thực nhận lũy kế = Tất cả các lần (Lần 1, Lần 2, Lần 3...)
       const actualSizes: Record<string, number> = {};
+      let totalActual = 0;
       matchingActuals.forEach((actual) => {
         Object.entries(actual.sizeQuantities || {}).forEach(([s, q]) => {
           const num = Number(q) || 0;
           actualSizes[s] = (actualSizes[s] || 0) + num;
         });
+        const sqTot = Object.values(actual.sizeQuantities || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+        totalActual += sqTot > 0 ? sqTot : Number(actual.totalQty) || 0;
       });
-      let totalActual = matchingActuals.reduce((sum, a) => {
-        const sqTot = Object.values(a.sizeQuantities || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-        return sum + (sqTot > 0 ? sqTot : Number(a.totalQty) || 0);
-      }, 0);
 
       // Tập hợp tất cả các size xuất hiện
       const allSizes = Array.from(
         new Set([...Object.keys(planSizes), ...Object.keys(actualSizes)])
       );
 
-      // 6. Tính chênh lệch từng Size = Thực nhận lũy kế (Size) - Kế hoạch gốc (Size)
+      // Tính chênh lệch từng Size = Thực nhận lũy kế (Size) - Kế hoạch gốc (Size)
       const diffSizes: Record<string, number> = {};
       let hasNeg = false;
-
       allSizes.forEach((s) => {
         const pQty = planSizes[s] || 0;
         const aQty = actualSizes[s] || 0;
         const diff = aQty - pQty;
         diffSizes[s] = diff;
-        if (diff < 0) {
-          hasNeg = true;
-        }
+        if (diff < 0) hasNeg = true;
       });
 
       const totalDiff = totalActual - totalPlan;
-      if (totalDiff < 0) {
-        hasNeg = true;
-      }
+      if (totalDiff < 0) hasNeg = true;
 
       let statusText: 'Khớp đủ' | 'Thiếu cần bù' | 'Giao thừa' = 'Khớp đủ';
       if (hasNeg) {
@@ -1005,7 +973,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const firstPlan = matchingPlans[0];
       const firstActual = matchingActuals[0];
-
       const voucherCodes = Array.from(
         new Set(
           [
@@ -1033,14 +1000,162 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         hasNegative: hasNeg,
         needsCompensation: hasNeg,
         originalPlanQty: totalPlan,
-        compensationPlanQty,
-        originalActualQty,
-        compensationActualQty,
+        compensationPlanQty: 0,
+        originalActualQty: totalActual,
+        compensationActualQty: 0,
         statusText,
         matchingPlans,
         matchingActuals,
+        isCompensationItem: false,
       };
     });
+
+    // B. XỬ LÝ NHÓM "HÀNG BÙ (MUA)": TÁCH RIÊNG NHƯ VẬT TƯ ĐỘC LẬP
+    // Gom theo id kế hoạch bù hoặc theo PO + itemCode của hàng bù
+    const compRows: DiscrepancyRow[] = compPlans.map((cPlan) => {
+      const matchingActuals = compActuals.filter(
+        (a) =>
+          a.planOrderId === cPlan.id ||
+          (a.poNumber?.trim().toUpperCase() === cPlan.poNumber.trim().toUpperCase() &&
+            a.itemCode?.trim().toUpperCase() === cPlan.itemCode.trim().toUpperCase())
+      );
+
+      const planSizes: Record<string, number> = {};
+      let totalPlan = 0;
+      Object.entries(cPlan.sizeQuantities || {}).forEach(([s, q]) => {
+        const num = Number(q) || 0;
+        planSizes[s] = num;
+        totalPlan += num;
+      });
+      if (totalPlan === 0) totalPlan = Number(cPlan.totalQty) || 0;
+
+      const actualSizes: Record<string, number> = {};
+      let totalActual = 0;
+      matchingActuals.forEach((a) => {
+        Object.entries(a.sizeQuantities || {}).forEach(([s, q]) => {
+          const num = Number(q) || 0;
+          actualSizes[s] = (actualSizes[s] || 0) + num;
+        });
+        const sqTot = Object.values(a.sizeQuantities || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+        totalActual += sqTot > 0 ? sqTot : Number(a.totalQty) || 0;
+      });
+
+      const allSizes = Array.from(
+        new Set([...Object.keys(planSizes), ...Object.keys(actualSizes)])
+      );
+      const diffSizes: Record<string, number> = {};
+      let hasNeg = false;
+      allSizes.forEach((s) => {
+        const pQty = planSizes[s] || 0;
+        const aQty = actualSizes[s] || 0;
+        const diff = aQty - pQty;
+        diffSizes[s] = diff;
+        if (diff < 0) hasNeg = true;
+      });
+
+      const totalDiff = totalActual - totalPlan;
+      if (totalDiff < 0) hasNeg = true;
+
+      let statusText: 'Khớp đủ' | 'Thiếu cần bù' | 'Giao thừa' = 'Khớp đủ';
+      if (hasNeg) {
+        statusText = 'Thiếu cần bù';
+      } else if (totalDiff > 0) {
+        statusText = 'Giao thừa';
+      } else {
+        statusText = 'Khớp đủ';
+      }
+
+      const voucherCodes = Array.from(
+        new Set([cPlan.voucherCode, ...matchingActuals.map((a) => a.voucherCode)].filter(Boolean))
+      ).join(', ');
+
+      return {
+        planOrderId: cPlan.id,
+        customerId: cPlan.customerId || selectedCustomerId || '',
+        receiptDate: cPlan.receiptDate,
+        poNumber: cPlan.poNumber,
+        itemCode: cPlan.itemCode,
+        voucherCode: voucherCodes,
+        description: `${cPlan.description || cPlan.itemCode} [Hàng bù (mua)]`,
+        unit: cPlan.unit || 'PRS',
+        planSizes,
+        actualSizes,
+        diffSizes,
+        totalPlan,
+        totalActual,
+        totalDiff,
+        hasNegative: hasNeg,
+        needsCompensation: hasNeg,
+        originalPlanQty: totalPlan,
+        compensationPlanQty: totalPlan,
+        originalActualQty: 0,
+        compensationActualQty: totalActual,
+        statusText,
+        matchingPlans: [cPlan],
+        matchingActuals,
+        isCompensationItem: true,
+      };
+    });
+
+    // Nếu có dòng compActuals mà không có cPlan tương ứng:
+    const matchedPlanIds = new Set(compPlans.map((p) => p.id));
+    const orphanCompActuals = compActuals.filter(
+      (a) => !a.planOrderId || !matchedPlanIds.has(a.planOrderId)
+    );
+    const orphanMap: Record<string, ActualReceiveRow[]> = {};
+    orphanCompActuals.forEach((a) => {
+      const k = `${(a.poNumber || '').trim().toUpperCase()}__${(a.itemCode || '').trim().toUpperCase()}`;
+      if (!orphanMap[k]) orphanMap[k] = [];
+      orphanMap[k].push(a);
+    });
+
+    Object.entries(orphanMap).forEach(([k, acts]) => {
+      const alreadyHandled = compRows.some(
+        (cr) => `${cr.poNumber.toUpperCase()}__${cr.itemCode.toUpperCase()}` === k
+      );
+      if (alreadyHandled) return;
+
+      const first = acts[0];
+      const actualSizes: Record<string, number> = {};
+      let totalActual = 0;
+      acts.forEach((a) => {
+        Object.entries(a.sizeQuantities || {}).forEach(([s, q]) => {
+          const num = Number(q) || 0;
+          actualSizes[s] = (actualSizes[s] || 0) + num;
+        });
+        const sqTot = Object.values(a.sizeQuantities || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+        totalActual += sqTot > 0 ? sqTot : Number(a.totalQty) || 0;
+      });
+
+      compRows.push({
+        planOrderId: first.id,
+        customerId: first.customerId || selectedCustomerId || '',
+        receiptDate: first.receiptDate || '',
+        poNumber: first.poNumber || '',
+        itemCode: first.itemCode || '',
+        voucherCode: first.voucherCode || '',
+        description: `${first.description || first.itemCode || 'Vật tư'} [Hàng bù (mua)]`,
+        unit: first.unit || 'PRS',
+        planSizes: {},
+        actualSizes,
+        diffSizes: actualSizes,
+        totalPlan: 0,
+        totalActual,
+        totalDiff: totalActual,
+        hasNegative: false,
+        needsCompensation: false,
+        originalPlanQty: 0,
+        compensationPlanQty: 0,
+        originalActualQty: 0,
+        compensationActualQty: totalActual,
+        statusText: totalActual > 0 ? 'Giao thừa' : 'Khớp đủ',
+        matchingPlans: [],
+        matchingActuals: acts,
+        isCompensationItem: true,
+      });
+    });
+
+    return [...regularRows, ...compRows];
   }, [currentCustomerPlanOrders, currentCustomerActualReceives, selectedCustomerId]);
 
   // TAB 4: NGUỒN DỮ LIỆU CẤP BÙ (GIAO THIẾU TỪ TAB 3 + HỎNG HẾT KHO TỪ TAB 7)
@@ -1357,14 +1472,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     selectedCustomerId,
   ]);
 
-  // TAB 8: TỒN KHO THÀNH PHẨM (Tự động đọc từ Báo Cáo Nghiệm Thu Tab 7)
+  // TAB 8: TỒN KHO THÀNH PHẨM (Tự động đọc số lượng và thuộc tính từ Tab 7)
   const currentCustomerFinishedGoodsStock: FinishedGoodsStockItem[] = useMemo(() => {
     const groups: Record<
       string,
       {
         poNumber: string;
         itemCode: string;
-        itemType?: 'Bán TP' | 'Thành Phẩm';
+        itemType?: 'Bán TP' | 'Bán thành phẩm' | 'Thành Phẩm';
         materialName?: string;
         unit: string;
         inbound: Record<string, number>;
@@ -1372,9 +1487,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     > = {};
 
-    // 0. Luôn khởi tạo sẵn dòng cho mọi mã PO từ Đơn hàng Tab 1 để Tab 8 luôn có sẵn dòng nhập xuất thành phẩm
+    // 0. Khởi tạo sẵn dòng cho mọi mã PO từ Đơn hàng Tab 1 nếu PO đó chưa có ghi nhận nào trong Tab 7
     currentCustomerPlanOrders.forEach((plan) => {
-      const key = `${plan.poNumber.trim().toUpperCase()}__${plan.itemCode.trim().toUpperCase()}`;
+      const cleanPo = plan.poNumber.trim().toUpperCase();
+      const cleanCode = plan.itemCode.trim().toUpperCase();
+      const hasInTab7 = currentCustomerProductionReports.some(
+        (r) => r.poNumber.trim().toUpperCase() === cleanPo && r.itemCode.trim().toUpperCase() === cleanCode
+      );
+      if (hasInTab7) return;
+
+      const key = `${cleanPo}__${cleanCode}__Thành Phẩm`;
       if (!groups[key]) {
         groups[key] = {
           poNumber: plan.poNumber,
@@ -1388,19 +1510,24 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     });
 
-    // 1. Tự động đọc dữ liệu nhập kho từ Tab 7 (completedQuantities của các chuyền 1, 2, 3...)
+    // 1. Tự động đọc dữ liệu nhập kho và THUỘC TÍNH TƯƠNG ỨNG từ Tab 7 (completedQuantities, itemType, detailName, unit)
     currentCustomerProductionReports.forEach((rep) => {
-      const key = `${rep.poNumber.trim().toUpperCase()}__${rep.itemCode.trim().toUpperCase()}`;
+      const itemType = (rep.itemType || 'Thành Phẩm') as 'Bán thành phẩm' | 'Thành Phẩm';
+      const key = `${rep.poNumber.trim().toUpperCase()}__${rep.itemCode.trim().toUpperCase()}__${itemType}`;
       if (!groups[key]) {
         groups[key] = {
           poNumber: rep.poNumber,
           itemCode: rep.itemCode,
-          itemType: 'Thành Phẩm',
+          itemType,
           materialName: rep.detailName || '',
           unit: rep.unit || 'PRS',
           inbound: {},
           delivered: {},
         };
+      } else {
+        groups[key].itemType = itemType;
+        if (rep.detailName) groups[key].materialName = rep.detailName;
+        if (rep.unit) groups[key].unit = rep.unit;
       }
       Object.entries(rep.completedQuantities || {}).forEach(([s, q]) => {
         const num = Number(q) || 0;
@@ -1410,20 +1537,30 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     // 2. Trừ sản lượng đã xuất giao thành phẩm cho khách hàng
     currentCustomerFinishedGoodsDeliveries.forEach((del) => {
-      const key = `${del.poNumber.trim().toUpperCase()}__${del.itemCode.trim().toUpperCase()}`;
+      const rawType = del.itemType || 'Thành Phẩm';
+      const itemType = (rawType === 'Bán TP' ? 'Bán thành phẩm' : rawType) as 'Bán thành phẩm' | 'Thành Phẩm';
+      let key = `${del.poNumber.trim().toUpperCase()}__${del.itemCode.trim().toUpperCase()}__${itemType}`;
       if (!groups[key]) {
-        groups[key] = {
-          poNumber: del.poNumber,
-          itemCode: del.itemCode,
-          itemType: del.itemType || 'Thành Phẩm',
-          materialName: del.materialName || '',
-          unit: del.unit || 'PRS',
-          inbound: {},
-          delivered: {},
-        };
+        // Tìm nhóm tồn kho tương ứng nếu có
+        const matchedKey = Object.keys(groups).find(
+          (k) =>
+            k.startsWith(`${del.poNumber.trim().toUpperCase()}__${del.itemCode.trim().toUpperCase()}__`)
+        );
+        if (matchedKey) {
+          key = matchedKey;
+        } else {
+          groups[key] = {
+            poNumber: del.poNumber,
+            itemCode: del.itemCode,
+            itemType,
+            materialName: del.materialName || '',
+            unit: del.unit || 'PRS',
+            inbound: {},
+            delivered: {},
+          };
+        }
       } else {
-        if (del.itemType) groups[key].itemType = del.itemType;
-        if (del.materialName) groups[key].materialName = del.materialName;
+        if (del.materialName && !groups[key].materialName) groups[key].materialName = del.materialName;
       }
       Object.entries(del.sizeQuantities || {}).forEach(([s, q]) => {
         const num = Number(q) || 0;

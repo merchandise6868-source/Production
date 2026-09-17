@@ -141,13 +141,14 @@ export interface PlanOrderRow {
   customerId: string;
   receiptDate: string;     // NGÀY NHẬP
   poNumber: string;        // MÃ PO
+  round?: number;          // CỘT LẦN (Đợt nhập / Lần giao 1, 2, 3... Mặc định 1)
   itemCode: string;        // CODE VẬT TƯ (TRƯỚC LÀ MÃ HÀNG TT)
   voucherCode: string;     // SỐ PHIẾU KH
   description: string;     // DIỄN GIẢI
   unit: string;            // ĐVT (PRS, đôi, bộ...)
   sizeQuantities: Record<string, number>; // Số lượng kế hoạch từng Size 4 -> 12
   totalQty: number;        // TỔNG CỘNG tự động tính
-  status?: 'Hàng đơn' | 'Hàng bù'; // Trạng thái đơn hàng
+  status?: 'Hàng đơn' | 'Hàng bù (mua)' | 'Hàng bù'; // Trạng thái đơn hàng
   note?: string;
   createdAt: string;
 }
@@ -159,13 +160,14 @@ export interface ActualReceiveRow {
   customerId: string;
   receiptDate?: string;    // Ngày nhận thực tế
   poNumber?: string;       // Mã PO
+  round?: number;          // Cột Lần tương ứng với đợt nhận
   itemCode?: string;       // Code vật tư
   voucherCode?: string;    // Số phiếu
   description?: string;    // Diễn giải
   unit?: string;           // ĐVT
   sizeQuantities: Record<string, number>; // Số lượng thực nhận thực tế từng Size
   totalQty: number;
-  status?: 'Hàng đơn' | 'Hàng bù'; // Trạng thái: Hàng đơn hay Hàng bù
+  status?: 'Hàng đơn' | 'Hàng bù (mua)' | 'Hàng bù'; // Trạng thái: Hàng đơn hay Hàng bù (mua)
   note?: string;
   updatedAt: string;
 }
@@ -195,6 +197,7 @@ export interface DiscrepancyRow {
   statusText?: 'Khớp đủ' | 'Thiếu cần bù' | 'Giao thừa';
   matchingPlans?: PlanOrderRow[];    // Chi tiết các phiếu thuộc PO
   matchingActuals?: ActualReceiveRow[]; // Chi tiết các đợt nhận thuộc PO
+  isCompensationItem?: boolean;      // Đánh dấu dòng Hàng bù (mua) độc lập
 }
 
 // TAB 5: XUẤT CHO SẢN XUẤT (Cấp phát xuống Chuyền)
@@ -219,13 +222,14 @@ export interface ProductionReportRow {
   reportDate: string;
   poNumber: string;
   itemCode: string;
+  itemType?: 'Thành Phẩm' | 'Bán thành phẩm'; // Loại: Thành Phẩm hay Bán thành phẩm
   detailName?: string;               // Dropdown tên chi tiết trong PO
   lineId: string;
   unit: string;
   completedQuantities: Record<string, number>; // Số lượng hoàn thành
-  damagedQuantities: Record<string, number>;   // Số lượng làm hư hỏng
-  compensationFromStock: Record<string, number>; // Lấy tồn kho bù vào (Tab 6 Xuất bù)
-  compensationFromCustomer: Record<string, number>; // Kho hết hàng -> Đẩy sang Tab 4
+  damagedQuantities?: Record<string, number>;   // Số lượng làm hư hỏng (nếu có)
+  compensationFromStock?: Record<string, number>; // Lấy tồn kho bù vào (Tab 6 Xuất bù)
+  compensationFromCustomer?: Record<string, number>; // Kho hết hàng -> Đẩy sang Tab 4
   status: 'Đủ hàng' | 'Xuất bù từ kho' | 'Đề nghị KH cấp bù';
   note?: string;
 }
@@ -293,7 +297,7 @@ export interface FinishedGoodsDeliveryRow {
   deliveryDate: string;              // Ngày xuất giao (DD/MM/YYYY)
   poNumber: string;                  // Mã PO
   itemCode: string;                  // Mã hàng / Model
-  itemType?: 'Bán TP' | 'Thành Phẩm'; // Loại: Bán TP hoặc Thành Phẩm
+  itemType?: 'Bán TP' | 'Bán thành phẩm' | 'Thành Phẩm'; // Loại: Bán TP/Bán thành phẩm hoặc Thành Phẩm
   materialName?: string;             // Tên vật tư trong PO
   deliveryVoucher: string;           // Số phiếu xuất giao (Delivery Note No)
   receiver: string;                  // Khách hàng / Người nhận
@@ -310,7 +314,7 @@ export interface FinishedGoodsStockItem {
   customerId: string;
   poNumber: string;
   itemCode: string;
-  itemType?: 'Bán TP' | 'Thành Phẩm'; // Loại: Bán TP hoặc Thành Phẩm
+  itemType?: 'Bán TP' | 'Bán thành phẩm' | 'Thành Phẩm'; // Loại: Bán TP/Bán thành phẩm hoặc Thành Phẩm
   materialName?: string;             // Tên vật tư trong PO
   unit: string;
   inboundSizes: Record<string, number>;   // Tự động đọc từ Tab 7 (completedQuantities của các chuyền)

@@ -176,7 +176,7 @@ export const Tab3Discrepancy: React.FC = () => {
                 Phát hiện {negativeRowsCount} đơn hàng giao THIẾU (Chênh lệch âm &lt; 0)
               </p>
               <p className="text-[11px] text-rose-600">
-                Hệ thống tự động đánh dấu <strong>Cần Bù [X]</strong> • Khi nhận bù tại Tab 1 &amp; Tab 2 với trạng thái "Hàng bù", số chênh lệch sẽ tự động cộng dồn về 0.
+                Hệ thống tự động đánh dấu <strong>Cần Bù [X]</strong> • Khi giao tiếp các lần sau (Lần 2, Lần 3...) của PO, số chênh lệch tự động cộng dồn về 0 khi đủ. Trạng thái <strong>Hàng bù (mua)</strong> được quản lý như một vật tư độc lập.
               </p>
             </div>
           </div>
@@ -360,7 +360,7 @@ export const Tab3Discrepancy: React.FC = () => {
                 </tr>
               ) : (
                 filteredDiscrepancies.map((row, idx) => {
-                  const isExpanded = expandedPoKey === row.poNumber;
+                  const isExpanded = expandedPoKey === row.planOrderId;
                   const originalPlan = row.originalPlanQty ?? row.totalPlan;
                   const compActual = row.compensationActualQty ?? 0;
 
@@ -382,11 +382,16 @@ export const Tab3Discrepancy: React.FC = () => {
                         <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700 bg-slate-50/70 whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => toggleExpand(row.poNumber)}
-                            className="inline-flex items-center gap-1 hover:underline cursor-pointer text-left"
+                            onClick={() => toggleExpand(row.planOrderId)}
+                            className="inline-flex items-center gap-1.5 hover:underline cursor-pointer text-left"
                             title="Bấm để xem chi tiết các đợt giao nhận của PO này"
                           >
                             <span>{row.poNumber}</span>
+                            {row.isCompensationItem && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                                Hàng bù (mua)
+                              </span>
+                            )}
                             {isExpanded ? (
                               <ChevronUp className="w-3 h-3 text-sky-600" />
                             ) : (
@@ -460,11 +465,7 @@ export const Tab3Discrepancy: React.FC = () => {
                               : 'bg-emerald-50 text-emerald-800 font-bold'
                           }`}
                         >
-                          {row.totalDiff !== 0
-                            ? row.totalDiff > 0
-                              ? `+${row.totalDiff}`
-                              : `${row.totalDiff}`
-                            : '0'}
+                          {row.totalDiff !== 0 ? (row.totalDiff > 0 ? `+${row.totalDiff}` : `${row.totalDiff}`) : '0'}
                         </td>
 
                         {/* Cột BÙ? (Tự động tích [x] và tô đỏ nếu có size âm) */}
@@ -497,7 +498,7 @@ export const Tab3Discrepancy: React.FC = () => {
                         <td className="p-1 text-center whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => toggleExpand(row.poNumber)}
+                            onClick={() => toggleExpand(row.planOrderId)}
                             className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-sky-700 hover:bg-sky-50 rounded border border-slate-200 transition cursor-pointer flex items-center justify-center gap-1 mx-auto"
                             title="Xem lịch sử các phiếu giao & nhận của PO này"
                           >
@@ -518,6 +519,11 @@ export const Tab3Discrepancy: React.FC = () => {
                                     <Info className="w-3.5 h-3.5 text-sky-600" />
                                     LỊCH SỬ GIAO NHẬN CHI TIẾT CỦA MÃ PO:
                                     <span className="font-mono text-sky-700 underline">{row.poNumber}</span>
+                                    {row.isCompensationItem && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                                        Hàng bù (mua)
+                                      </span>
+                                    )}
                                   </span>
                                   <span className="text-[11px] text-slate-500">
                                     (Vật tư: {row.itemCode} - {row.description})
@@ -533,15 +539,17 @@ export const Tab3Discrepancy: React.FC = () => {
                                 <div className="border border-slate-200 rounded-lg p-2.5 bg-sky-50/30 space-y-2">
                                   <h5 className="font-bold text-[11px] text-sky-900 uppercase flex items-center justify-between">
                                     <span>TAB 1: Các Phiếu Giao ({row.matchingPlans?.length || 0} phiếu)</span>
-                                    <span className="font-mono text-xs text-sky-800">Mục tiêu gốc: {originalPlan}</span>
+                                    <span className="font-mono text-xs text-sky-800">Mục tiêu gốc (Lần 1): {originalPlan}</span>
                                   </h5>
                                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                     {row.matchingPlans?.map((p, pIdx) => (
                                       <div key={p.id} className="p-2 bg-white rounded border border-sky-200/80 text-[11px] space-y-1">
                                         <div className="flex items-center justify-between font-medium">
-                                          <span>#{pIdx + 1} • Ngày: {p.receiptDate} • Phiếu: {p.voucherCode || 'N/A'}</span>
+                                          <span>
+                                            #{pIdx + 1} • <strong className="text-amber-800">Lần {p.round || 1}</strong> • Ngày: {p.receiptDate} • Phiếu: {p.voucherCode || 'N/A'}
+                                          </span>
                                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                            p.status === 'Hàng bù'
+                                            p.status === 'Hàng bù (mua)' || p.status === 'Hàng bù'
                                               ? 'bg-purple-100 text-purple-800 border border-purple-200'
                                               : 'bg-sky-100 text-sky-800 border border-sky-200'
                                           }`}>
@@ -565,15 +573,17 @@ export const Tab3Discrepancy: React.FC = () => {
                                 <div className="border border-slate-200 rounded-lg p-2.5 bg-emerald-50/30 space-y-2">
                                   <h5 className="font-bold text-[11px] text-emerald-900 uppercase flex items-center justify-between">
                                     <span>TAB 2: Các Đợt Thực Nhận ({row.matchingActuals?.length || 0} đợt)</span>
-                                    <span className="font-mono text-xs text-emerald-800">Đã nhận: {row.totalActual}</span>
+                                    <span className="font-mono text-xs text-emerald-800">Tổng đã nhận: {row.totalActual}</span>
                                   </h5>
                                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                     {row.matchingActuals?.map((a, aIdx) => (
                                       <div key={a.id} className="p-2 bg-white rounded border border-emerald-200/80 text-[11px] space-y-1">
                                         <div className="flex items-center justify-between font-medium">
-                                          <span>#{aIdx + 1} • Ngày: {a.receiptDate} • Phiếu: {a.voucherCode || 'N/A'}</span>
+                                          <span>
+                                            #{aIdx + 1} • <strong className="text-amber-800">Lần {a.round || 1}</strong> • Ngày: {a.receiptDate} • Phiếu: {a.voucherCode || 'N/A'}
+                                          </span>
                                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                            a.status === 'Hàng bù'
+                                            a.status === 'Hàng bù (mua)' || a.status === 'Hàng bù'
                                               ? 'bg-purple-100 text-purple-800 border border-purple-200'
                                               : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                           }`}>

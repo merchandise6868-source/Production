@@ -60,7 +60,7 @@ export const Tab8FinishedGoods: React.FC = () => {
   const [globalNewBatch, setGlobalNewBatch] = useState<{
     poNumber: string;
     itemCode: string;
-    itemType: 'Bán TP' | 'Thành Phẩm';
+    itemType: 'Bán TP' | 'Bán thành phẩm' | 'Thành Phẩm';
     materialName: string;
     deliveryDate: string;
     deliveryVoucher: string;
@@ -634,7 +634,7 @@ export const Tab8FinishedGoods: React.FC = () => {
         idx + 1,
         item.poNumber,
         item.itemCode,
-        'Thành Phẩm',
+        item.itemType || 'Thành Phẩm',
         item.materialName || '-',
         item.unit,
         '1. Nhập kho TP (từ Chuyền 1,2,3)',
@@ -874,7 +874,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                   className="w-full h-8 px-2 text-xs font-bold bg-white border border-slate-300 rounded focus:ring-1 focus:ring-amber-500 cursor-pointer text-amber-900"
                 >
                   <option value="Thành Phẩm">Thành Phẩm</option>
-                  <option value="Bán TP">Bán TP</option>
+                  <option value="Bán thành phẩm">Bán thành phẩm</option>
                 </select>
               </div>
 
@@ -1051,10 +1051,16 @@ export const Tab8FinishedGoods: React.FC = () => {
                           {item.itemCode}
                         </td>
 
-                        {/* Cột Loại (Dòng 1: Thành Phẩm) */}
+                        {/* Cột Loại (Đọc từ Tab 7) */}
                         <td className="p-2 border-r border-slate-200 text-center">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                            Thành Phẩm
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              item.itemType === 'Bán thành phẩm' || item.itemType === 'Bán TP'
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {item.itemType || 'Thành Phẩm'}
                           </span>
                         </td>
 
@@ -1138,12 +1144,12 @@ export const Tab8FinishedGoods: React.FC = () => {
                                   className="w-full h-8 px-1 text-xs border border-amber-300 rounded font-bold text-amber-900 bg-white cursor-pointer"
                                 >
                                   <option value="Thành Phẩm">Thành Phẩm</option>
-                                  <option value="Bán TP">Bán TP</option>
+                                  <option value="Bán thành phẩm">Bán thành phẩm</option>
                                 </select>
                               ) : (
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                    del.itemType === 'Bán TP'
+                                    del.itemType === 'Bán TP' || del.itemType === 'Bán thành phẩm'
                                       ? 'bg-purple-100 text-purple-800 border border-purple-200'
                                       : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                   }`}
@@ -1352,7 +1358,7 @@ export const Tab8FinishedGoods: React.FC = () => {
                               className="w-full h-8 px-1 text-xs border border-emerald-300 rounded font-bold text-emerald-900 bg-white cursor-pointer"
                             >
                               <option value="Thành Phẩm">Thành Phẩm</option>
-                              <option value="Bán TP">Bán TP</option>
+                              <option value="Bán thành phẩm">Bán thành phẩm</option>
                             </select>
                           </td>
 
