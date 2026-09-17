@@ -45,7 +45,7 @@ export const GeneralOutboundTab: React.FC = () => {
       id: 'row-out-1',
       itemCode: '',
       itemName: '',
-      group: 'Vật tư sản xuất',
+      group: '' as any,
       unit: 'Cái',
       quantity: 1,
       receiver: '',
@@ -92,7 +92,7 @@ export const GeneralOutboundTab: React.FC = () => {
         id: newId,
         itemCode: '',
         itemName: '',
-        group: 'Vật tư sản xuất',
+        group: '' as any,
         unit: 'Cái',
         quantity: 1,
         receiver: '',
@@ -125,8 +125,8 @@ export const GeneralOutboundTab: React.FC = () => {
 
   // Xóa dòng
   const handleDeleteRow = (index: number) => {
-    if (rows.length <= 1) {
-      toast('Phiếu phải có ít nhất 1 dòng vật tư xuất kho.', 'warning');
+    if (rows.length === 1) {
+      toast('Phiếu phải có ít nhất 1 dòng mặt hàng!', 'warning');
       return;
     }
     setRows((prev) => prev.filter((_, i) => i !== index));
@@ -145,7 +145,7 @@ export const GeneralOutboundTab: React.FC = () => {
         id: `row-out-${Date.now()}`,
         itemCode: '',
         itemName: '',
-        group: 'Vật tư sản xuất',
+        group: '' as any,
         unit: 'Cái',
         quantity: 1,
         receiver: '',
@@ -159,18 +159,25 @@ export const GeneralOutboundTab: React.FC = () => {
 
   // Lưu phiếu xuất kho
   const handleSaveSlip = () => {
-    if (!slipDate.trim()) {
-      toast('Vui lòng nhập Ngày lập phiếu xuất!', 'error');
+    if (!slipNumber.trim()) {
+      toast('Vui lòng nhập Số Phiếu xuất kho!', 'error');
       return;
     }
-    if (!slipNumber.trim()) {
-      toast('Vui lòng nhập Mã phiếu xuất kho!', 'error');
+
+    if (!slipDate.trim()) {
+      toast('Vui lòng chọn hoặc nhập Ngày xuất kho!', 'error');
       return;
     }
 
     const validRows = rows.filter((r) => r.itemName.trim() || r.itemCode.trim());
     if (validRows.length === 0) {
       toast('Vui lòng nhập ít nhất một mặt hàng có Tên hoặc Mã hàng!', 'error');
+      return;
+    }
+
+    const invalidGroupRow = validRows.find((r) => !r.group);
+    if (invalidGroupRow) {
+      toast(`Vui lòng chọn Nhóm (Công cụ dụng cụ / Vật tư sản xuất / Thiết bị máy móc) cho mặt hàng "${invalidGroupRow.itemName || invalidGroupRow.itemCode || 'chưa đặt tên'}"!`, 'error');
       return;
     }
 
@@ -451,10 +458,13 @@ export const GeneralOutboundTab: React.FC = () => {
                     {/* Nhóm: Dropdown 1 trong 3 loại bắt buộc (Hình 2) */}
                     <td className="p-1 border-r border-slate-200">
                       <select
-                        value={row.group}
+                        value={row.group || ''}
                         onChange={(e) => handleRowChange(idx, 'group', e.target.value as GeneralItemGroup)}
-                        className="w-full px-1 py-1 text-xs font-bold text-indigo-900 bg-indigo-50/60 border border-indigo-200 rounded focus:bg-white focus:ring-1 focus:ring-sky-500 cursor-pointer"
+                        className={`w-full px-1 py-1 text-xs font-bold border border-indigo-200 rounded focus:bg-white focus:ring-1 focus:ring-sky-500 cursor-pointer ${
+                          !row.group ? 'text-amber-700 italic font-normal bg-amber-50/40' : 'text-indigo-900 bg-indigo-50/60'
+                        }`}
                       >
+                        <option value="">-- Chọn nhóm --</option>
                         <option value="Công cụ dụng cụ">Công cụ dụng cụ</option>
                         <option value="Vật tư sản xuất">Vật tư sản xuất</option>
                         <option value="Thiết bị máy móc">Thiết bị máy móc</option>

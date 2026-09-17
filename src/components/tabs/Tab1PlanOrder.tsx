@@ -74,7 +74,7 @@ export const Tab1PlanOrder: React.FC = () => {
       description: '',
       unit: 'PRS',
       sizeQuantities: initialSizes,
-      status: 'Hàng đơn',
+      status: '' as any,
       note: '',
     };
   };
@@ -231,9 +231,14 @@ export const Tab1PlanOrder: React.FC = () => {
       return;
     }
 
+    if (!item.status) {
+      alert('Vui lòng chọn Trạng Thái (Hàng đơn hoặc Hàng bù (mua))!', 'Chưa chọn Trạng Thái', 'warning');
+      return;
+    }
+
     const total = getItemTotal(item);
     if (total <= 0) {
-      alert('Vui lòng nhập số lượng kế hoạch cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
+      alert('Vui lòng nhập số lượng cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
       return;
     }
 
@@ -254,7 +259,7 @@ export const Tab1PlanOrder: React.FC = () => {
       unit: item.unit || 'PRS',
       sizeQuantities: sq,
       totalQty: total,
-      status: item.status || 'Hàng đơn',
+      status: item.status as any,
       note: item.note.trim() || undefined,
     };
 
@@ -765,7 +770,7 @@ export const Tab1PlanOrder: React.FC = () => {
                       <select
                         data-row-idx={idx}
                         data-col-key="status"
-                        value={item.status === 'Hàng bù' ? 'Hàng bù (mua)' : (item.status || 'Hàng đơn')}
+                        value={item.status === 'Hàng bù' ? 'Hàng bù (mua)' : (item.status || '')}
                         onChange={(e) =>
                           handleStatusChange(item.id, e.target.value as 'Hàng đơn' | 'Hàng bù (mua)')
                         }
@@ -776,9 +781,12 @@ export const Tab1PlanOrder: React.FC = () => {
                         className={`w-full h-8 px-1 text-xs font-semibold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white cursor-pointer text-center ${
                           item.status === 'Hàng bù (mua)' || item.status === 'Hàng bù'
                             ? 'text-purple-800 font-bold bg-purple-50'
-                            : 'text-sky-800 font-bold'
+                            : item.status === 'Hàng đơn'
+                            ? 'text-sky-800 font-bold'
+                            : 'text-amber-700 italic font-normal'
                         }`}
                       >
+                        <option value="">-- Chọn trạng thái --</option>
                         <option value="Hàng đơn">Hàng đơn</option>
                         <option value="Hàng bù (mua)">Hàng bù (mua)</option>
                       </select>

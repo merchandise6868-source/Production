@@ -137,6 +137,7 @@ export const Tab6RealtimeStock: React.FC = () => {
         ]);
       });
       detailIssues.forEach((i, idx) => {
+        const isComp = i.issueType === 'Xuất bù chuyền';
         dataRows.push([
           detailReceipts.length + idx + 1,
           i.issueDate || '',
@@ -144,16 +145,16 @@ export const Tab6RealtimeStock: React.FC = () => {
           i.itemCode,
           i.detailName || 'Chi tiết SX',
           i.unit || 'PRS',
-          `2. Xuất SX (${i.lineId})`,
+          isComp ? `3. Xuất Bù (${i.lineId})` : `2. Xuất SX (${i.lineId})`,
           ...sizes.map((s) => i.sizeQuantities[s] || 0),
           i.totalQty,
-          'Xuất SX',
+          isComp ? 'Xuất bù chuyền' : 'Xuất SX',
         ]);
       });
       const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `ChiTiet_${searchQuery}`);
-      XLSX.writeFile(wb, `Tab5_ChiTiet_${searchQuery}_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+      XLSX.writeFile(wb, `Tab6_ChiTiet_${searchQuery}_${currentCustomer?.name || 'KhachHang'}.xlsx`);
       return;
     }
 
@@ -195,7 +196,7 @@ export const Tab6RealtimeStock: React.FC = () => {
         '',
         '',
         '',
-        '2. Xuất Sản Xuất (Tab 6)',
+        '2. Xuất Sản Xuất (Tab 5)',
         ...sizes.map((s) => item.productionIssuedSizes[s] || 0),
         item.totalProductionIssued,
       ]);
@@ -207,7 +208,7 @@ export const Tab6RealtimeStock: React.FC = () => {
         '',
         '',
         '',
-        '3. Xuất Bù Hỏng Hàng (Tab 7)',
+        '3. Xuất Bù Chuyền (Tab 5)',
         ...sizes.map((s) => item.damagedCompSizes[s] || 0),
         item.totalDamagedComp,
       ]);
@@ -229,8 +230,8 @@ export const Tab6RealtimeStock: React.FC = () => {
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'TonKhoRealtime_Tab5');
-    XLSX.writeFile(wb, `Tab5_TonKho_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'TonKhoRealtime_Tab6');
+    XLSX.writeFile(wb, `Tab6_TonKho_${currentCustomer?.name || 'KhachHang'}.xlsx`);
   };
 
   // Print preparation
@@ -496,49 +497,68 @@ export const Tab6RealtimeStock: React.FC = () => {
                       </tr>
                     ))}
 
-                    {/* 2. Các lần Xuất Sản Xuất từ Tab 6 */}
-                    {detailIssues.map((iss, iIdx) => (
-                      <tr key={`iss-${iss.id}-${iIdx}`} className="bg-sky-50/20 hover:bg-sky-50/40 transition">
-                        <td className="p-2 border-r border-slate-200 text-center font-mono text-[11px] text-slate-400">
-                          {detailReceipts.length + iIdx + 1}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-mono font-semibold text-amber-900 bg-amber-50/40">
-                          {iss.issueDate || '-'}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700">
-                          {iss.poNumber}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-900">
-                          {iss.itemCode}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-slate-700">
-                          {iss.detailName || 'Chi tiết SX'}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-center text-slate-500">
-                          {iss.unit || 'PRS'}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-sky-800 font-medium">
-                          <span className="inline-block w-2 h-2 rounded-full bg-sky-500 mr-1.5"></span>
-                          <span>2. Xuất SX ({iss.lineId})</span>
-                        </td>
-                        {sizes.map((s) => {
-                          const q = iss.sizeQuantities[s] || 0;
-                          return (
-                            <td key={s} className="p-1.5 border-r border-slate-200 text-center font-mono text-sky-900">
-                              {q > 0 ? q.toLocaleString('vi-VN') : '-'}
-                            </td>
-                          );
-                        })}
-                        <td className="p-2 border-r border-slate-200 text-right font-mono font-bold text-sky-950 bg-sky-100/50">
-                          {iss.totalQty.toLocaleString('vi-VN')}
-                        </td>
-                        <td className="p-2 text-center">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800">
-                            Xuất SX
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {/* 2. Các lần Xuất Sản Xuất / Xuất Bù từ Tab 5 */}
+                    {detailIssues.map((iss, iIdx) => {
+                      const isComp = iss.issueType === 'Xuất bù chuyền';
+                      return (
+                        <tr
+                          key={`iss-${iss.id}-${iIdx}`}
+                          className={`transition ${isComp ? 'bg-purple-50/25 hover:bg-purple-50/50' : 'bg-sky-50/20 hover:bg-sky-50/40'}`}
+                        >
+                          <td className="p-2 border-r border-slate-200 text-center font-mono text-[11px] text-slate-400">
+                            {detailReceipts.length + iIdx + 1}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 font-mono font-semibold text-amber-900 bg-amber-50/40">
+                            {iss.issueDate || '-'}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 font-mono font-bold text-sky-700">
+                            {iss.poNumber}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-900">
+                            {iss.itemCode}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 text-slate-700">
+                            {iss.detailName || 'Chi tiết SX'}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 text-center text-slate-500">
+                            {iss.unit || 'PRS'}
+                          </td>
+                          <td className={`p-2 border-r border-slate-200 font-medium ${isComp ? 'text-purple-900' : 'text-sky-800'}`}>
+                            <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isComp ? 'bg-purple-600' : 'bg-sky-500'}`}></span>
+                            <span>{isComp ? `3. Xuất Bù (${iss.lineId})` : `2. Xuất SX (${iss.lineId})`}</span>
+                          </td>
+                          {sizes.map((s) => {
+                            const q = iss.sizeQuantities[s] || 0;
+                            return (
+                              <td
+                                key={s}
+                                className={`p-1.5 border-r border-slate-200 text-center font-mono ${
+                                  isComp ? 'text-purple-950 font-semibold' : 'text-sky-900'
+                                }`}
+                              >
+                                {q > 0 ? q.toLocaleString('vi-VN') : '-'}
+                              </td>
+                            );
+                          })}
+                          <td
+                            className={`p-2 border-r border-slate-200 text-right font-mono font-bold ${
+                              isComp ? 'text-purple-950 bg-purple-100/60' : 'text-sky-950 bg-sky-100/50'
+                            }`}
+                          >
+                            {iss.totalQty.toLocaleString('vi-VN')}
+                          </td>
+                          <td className="p-2 text-center">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                isComp ? 'bg-purple-200 text-purple-900' : 'bg-sky-100 text-sky-800'
+                              }`}
+                            >
+                              {isComp ? 'Xuất bù chuyền' : 'Xuất SX'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
 
                     {/* Dòng Tổng Kết Tồn Kho Cho PO */}
                     <tr className="bg-emerald-100/60 font-bold border-t-2 border-emerald-400">
@@ -549,7 +569,7 @@ export const Tab6RealtimeStock: React.FC = () => {
                         {searchQuery}
                       </td>
                       <td colSpan={3} className="p-2 border-r border-slate-300 text-emerald-950 uppercase text-[11px]">
-                        TỒN KHO CÒN LẠI (THỰC NHẬN - XUẤT SX)
+                        TỒN KHO CÒN LẠI (THỰC NHẬN - XUẤT SX - XUẤT BÙ)
                       </td>
                       <td className="p-2 border-r border-slate-300 font-bold text-emerald-950">
                         Số dư khả dụng
@@ -686,11 +706,11 @@ export const Tab6RealtimeStock: React.FC = () => {
                       </td>
                     </tr>
 
-                    {/* Row 2: Xuất Sản Xuất (Tab 6) */}
+                    {/* Row 2: Xuất Sản Xuất (Tab 5) */}
                     <tr className="bg-sky-50/20 hover:bg-sky-50/40">
                       <td className="p-1.5 border-r border-slate-200 text-sky-800 font-medium flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-sky-500"></span>
-                        <span>2. Xuất Sản Xuất (Tab 6)</span>
+                        <span>2. Xuất Sản Xuất (Tab 5)</span>
                       </td>
                       {sizes.map((s) => {
                         const q = item.productionIssuedSizes[s] || 0;
@@ -710,15 +730,15 @@ export const Tab6RealtimeStock: React.FC = () => {
                       </td>
                     </tr>
 
-                    {/* Row 3: Xuất Bù (Cho phép nhập trực tiếp số lượng khi có đợt cấp bù) */}
+                    {/* Row 3: Xuất Bù Chuyền (Tự động từ Tab 5 hoặc nhập bổ sung) */}
                     <tr className="bg-purple-50/40 hover:bg-purple-50/60 transition-colors">
                       <td className="p-1.5 border-r border-slate-200 text-purple-900 font-semibold flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-purple-600"></span>
-                          <span>3. Xuất Bù (Hỏng / Thiếu)</span>
+                          <span>3. Xuất Bù Chuyền (Tab 5)</span>
                         </div>
                         <span className="text-[10px] text-purple-700 bg-purple-100 px-1 py-0.5 rounded font-mono font-bold">
-                          Nhập bù ✍️
+                          {item.totalDamagedComp > 0 ? 'Có xuất bù' : 'Tự động'}
                         </span>
                       </td>
                       {sizes.map((s) => {

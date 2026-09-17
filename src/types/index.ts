@@ -207,6 +207,7 @@ export interface ProductionIssueRow {
   issueDate: string;
   poNumber: string;
   itemCode: string;
+  issueType?: 'Xuất sản xuất' | 'Xuất bù chuyền' | string; // Loại xuất: Xuất sản xuất hay Xuất bù chuyền
   detailName?: string;               // Dropdown tên chi tiết trong PO
   lineId: string;                    // Dropdown: Chuyền 1, Chuyền 2, Chuyền 3...
   unit: string;
@@ -362,7 +363,7 @@ export interface GeneralOutboundItem {
   id: string;
   itemCode: string;        // Mã hàng
   itemName: string;        // Tên hàng hóa
-  group: GeneralItemGroup; // Nhóm: Công cụ dụng cụ | Vật tư sản xuất | Thiết bị máy móc
+  group: GeneralItemGroup | string; // Nhóm: Công cụ dụng cụ | Vật tư sản xuất | Thiết bị máy móc | rỗng
   unit: string;            // ĐVT
   quantity: number;        // Số lượng xuất
   receiver: string;        // Người nhận

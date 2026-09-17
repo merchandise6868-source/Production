@@ -63,7 +63,7 @@ const createNewTab2RowHelper = (
     planTotalQty: 0,
     planSizeQuantities: {},
     sizeQuantities: sq,
-    status: 'Hàng đơn',
+    status: '' as any,
     note: '',
   };
 };
@@ -372,6 +372,12 @@ export const Tab2ActualReceive: React.FC = () => {
 
     if (validRows.length === 0) {
       alert('Chưa có dữ liệu thực nhận nào để lưu!', 'Dữ liệu trống', 'warning');
+      return;
+    }
+
+    const invalidStatusRow = validRows.find((r) => !r.status);
+    if (invalidStatusRow) {
+      alert(`Vui lòng chọn Trạng Thái (Hàng đơn hoặc Hàng bù (mua)) cho dòng PO "${invalidStatusRow.poNumber || 'chưa đặt tên'}"!`, 'Chưa chọn Trạng Thái', 'warning');
       return;
     }
 
@@ -1025,7 +1031,7 @@ export const Tab2ActualReceive: React.FC = () => {
                         <select
                           data-row-idx={idx}
                           data-col-key="status"
-                          value={row.status === 'Hàng bù' ? 'Hàng bù (mua)' : (row.status || 'Hàng đơn')}
+                          value={row.status === 'Hàng bù' ? 'Hàng bù (mua)' : (row.status || '')}
                           onChange={(e) =>
                             handleUpdateRowField(row.id, 'status', e.target.value as 'Hàng đơn' | 'Hàng bù (mua)')
                           }
@@ -1036,9 +1042,12 @@ export const Tab2ActualReceive: React.FC = () => {
                           className={`w-full h-8 px-1 text-xs font-semibold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white cursor-pointer text-center ${
                             row.status === 'Hàng bù (mua)' || row.status === 'Hàng bù'
                               ? 'text-purple-800 font-bold bg-purple-50'
-                              : 'text-sky-800 font-bold'
+                              : row.status === 'Hàng đơn'
+                              ? 'text-sky-800 font-bold'
+                              : 'text-amber-700 italic font-normal'
                           }`}
                         >
+                          <option value="">-- Chọn trạng thái --</option>
                           <option value="Hàng đơn">Hàng đơn</option>
                           <option value="Hàng bù (mua)">Hàng bù (mua)</option>
                         </select>

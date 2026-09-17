@@ -28,6 +28,7 @@ export interface Tab6IssueItem {
   issueDate: string;
   poNumber: string;
   itemCode: string;
+  issueType?: 'Xuất sản xuất' | 'Xuất bù chuyền' | '';
   detailName?: string;
   lineId: string;
   unit: string;
@@ -132,8 +133,9 @@ export const Tab5ProductionIssue: React.FC = () => {
       issueDate: defaultDate,
       poNumber: defaultPlan?.poNumber || '',
       itemCode: defaultPlan?.itemCode || '',
+      issueType: '', // Mặc định để rỗng
       detailName: defaultPlan?.description || '',
-      lineId: 'Chuyền 1',
+      lineId: '', // Mặc định để rỗng
       unit: defaultPlan?.unit || 'PRS',
       sizeQuantities: sq,
       note: '',
@@ -155,8 +157,9 @@ export const Tab5ProductionIssue: React.FC = () => {
           issueDate: i.issueDate,
           poNumber: i.poNumber,
           itemCode: i.itemCode,
+          issueType: (i.issueType as any) || 'Xuất sản xuất',
           detailName: i.detailName || '',
-          lineId: i.lineId,
+          lineId: i.lineId || '',
           unit: i.unit || 'PRS',
           sizeQuantities: sq,
           note: i.note || '',
@@ -193,8 +196,9 @@ export const Tab5ProductionIssue: React.FC = () => {
           issueDate: i.issueDate,
           poNumber: i.poNumber,
           itemCode: i.itemCode,
+          issueType: (i.issueType as any) || 'Xuất sản xuất',
           detailName: i.detailName || '',
-          lineId: i.lineId,
+          lineId: i.lineId || '',
           unit: i.unit || 'PRS',
           sizeQuantities: sq,
           note: i.note || '',
@@ -309,6 +313,16 @@ export const Tab5ProductionIssue: React.FC = () => {
       return;
     }
 
+    if (!item.lineId) {
+      alert('Vui lòng chọn Bộ Phận Nhận (Chuyền)!', 'Chưa chọn Chuyền', 'warning');
+      return;
+    }
+
+    if (!item.issueType) {
+      alert('Vui lòng chọn Loại Xuất (Xuất sản xuất hoặc Xuất bù chuyền)!', 'Chưa chọn Loại Xuất', 'warning');
+      return;
+    }
+
     const total = getItemTotal(item);
     if (total <= 0) {
       alert('Vui lòng nhập số lượng xuất cho ít nhất một Size!', 'Chưa có số lượng', 'warning');
@@ -326,6 +340,7 @@ export const Tab5ProductionIssue: React.FC = () => {
       issueDate: item.issueDate.trim() || defaultDate,
       poNumber: item.poNumber.trim().toUpperCase(),
       itemCode: item.itemCode.trim().toUpperCase(),
+      issueType: item.issueType,
       detailName: item.detailName?.trim() || undefined,
       lineId: item.lineId,
       unit: item.unit || 'PRS',
@@ -349,12 +364,13 @@ export const Tab5ProductionIssue: React.FC = () => {
               id: issueData.id,
               isNew: false,
               isEditing: false, // Khóa dòng!
+              issueType: issueData.issueType as any,
             }
           : r
       )
     );
 
-    toast(`🔒 Đã lưu & khóa dòng PO ${issueData.poNumber} thành công! Nhấn Sửa ✏️ để mở khóa sửa lại.`);
+    toast(`🔒 Đã lưu & khóa dòng PO ${issueData.poNumber} (${issueData.issueType}) thành công! Nhấn Sửa ✏️ để mở khóa sửa lại.`);
   };
 
   // Xóa dòng
@@ -384,6 +400,7 @@ export const Tab5ProductionIssue: React.FC = () => {
     { key: 'itemCode', type: 'text' as const },
     { key: 'detailName', type: 'text' as const },
     { key: 'lineId', type: 'line' as const },
+    { key: 'issueType', type: 'issueType' as const },
     { key: 'unit', type: 'unit' as const },
     ...sizes.map((s) => ({ key: `size_${s}`, type: 'size' as const, size: s })),
     { key: 'note', type: 'note' as const },
@@ -478,6 +495,14 @@ export const Tab5ProductionIssue: React.FC = () => {
           } else if (rawVal) {
             targetRow.lineId = rawVal;
           }
+        } else if (colDef.type === 'issueType') {
+          if (/bù/i.test(rawVal)) {
+            targetRow.issueType = 'Xuất bù chuyền';
+          } else if (/xuất|sx|sản xuất/i.test(rawVal)) {
+            targetRow.issueType = 'Xuất sản xuất';
+          } else if (rawVal) {
+            targetRow.issueType = rawVal as any;
+          }
         } else if (colDef.type === 'unit') {
           if (rawVal) targetRow.unit = rawVal;
         } else if (colDef.type === 'size') {
@@ -511,6 +536,7 @@ export const Tab5ProductionIssue: React.FC = () => {
         i.itemCode.toLowerCase().includes(q) ||
         (i.detailName && i.detailName.toLowerCase().includes(q)) ||
         i.lineId.toLowerCase().includes(q) ||
+        (i.issueType && i.issueType.toLowerCase().includes(q)) ||
         (i.note && i.note.toLowerCase().includes(q))
     );
   }, [issueItems, searchQuery]);
@@ -540,6 +566,7 @@ export const Tab5ProductionIssue: React.FC = () => {
       'Code Vật tư',
       'Tên Chi Tiết',
       'Bộ Phận Nhận (Chuyền)',
+      'Loại Xuất',
       'ĐVT',
       ...sizes.map((s) => `Size ${s}`),
       'Tổng SL Xuất',
@@ -553,6 +580,7 @@ export const Tab5ProductionIssue: React.FC = () => {
       i.itemCode,
       i.detailName || '',
       i.lineId,
+      i.issueType || 'Xuất sản xuất',
       i.unit,
       ...sizes.map((s) => (typeof i.sizeQuantities[s] === 'number' ? i.sizeQuantities[s] : 0)),
       getItemTotal(i),
@@ -561,8 +589,8 @@ export const Tab5ProductionIssue: React.FC = () => {
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'XuatChoSX_Tab6');
-    XLSX.writeFile(wb, `Tab6_XuatChoSX_${currentCustomer?.name || 'KhachHang'}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'XuatChoSX_Tab5');
+    XLSX.writeFile(wb, `Tab5_XuatChoSX_${currentCustomer?.name || 'KhachHang'}.xlsx`);
   };
 
   // In chuẩn bị
@@ -580,6 +608,7 @@ export const Tab5ProductionIssue: React.FC = () => {
             issueDate: r.issueDate,
             poNumber: r.poNumber,
             itemCode: r.itemCode,
+            issueType: r.issueType || 'Xuất sản xuất',
             lineId: r.lineId,
             unit: r.unit,
             sizeQuantities: sq,
@@ -591,14 +620,14 @@ export const Tab5ProductionIssue: React.FC = () => {
     return list.map((r, idx) => ({
       stt: idx + 1,
       date: r.issueDate,
-      voucherCode: r.lineId,
+      voucherCode: `${r.lineId} • ${r.issueType || 'Xuất sản xuất'}`,
       poNumber: r.poNumber,
       code: r.itemCode,
-      description: `Xuất cấp vật tư cho ${r.lineId}`,
+      description: `${r.issueType === 'Xuất bù chuyền' ? 'XUẤT BÙ VẬT TƯ CHO' : 'Xuất cấp vật tư cho'} ${r.lineId}`,
       unit: r.unit,
       sizeQuantities: r.sizeQuantities,
       totalQty: r.totalQty,
-      note: r.note,
+      note: `${r.issueType === 'Xuất bù chuyền' ? '[XUẤT BÙ] ' : ''}${r.note || ''}`,
     }));
   }, [selectedForPrint, filteredItems, sizes, currentCustomer]);
 
@@ -696,6 +725,9 @@ export const Tab5ProductionIssue: React.FC = () => {
                 <th className="p-2 border-r border-slate-300 min-w-[130px]">Tên Chi Tiết</th>
                 <th className="p-2 border-r border-slate-300 min-w-[130px] bg-sky-50 text-sky-900 font-bold">
                   Bộ Phận Nhận (Chuyền) *
+                </th>
+                <th className="p-2 border-r border-slate-300 min-w-[130px] bg-purple-50 text-purple-900 font-bold text-center">
+                  Loại Xuất *
                 </th>
                 <th className="p-2 border-r border-slate-300 text-center w-14">ĐVT</th>
 
@@ -862,28 +894,80 @@ export const Tab5ProductionIssue: React.FC = () => {
                       {isLocked ? (
                         <div
                           onClick={() => handleUnlockRow(item.id)}
-                          className="p-2 font-semibold text-sky-900 whitespace-nowrap cursor-pointer hover:bg-sky-100/60 transition-colors"
+                          className={`p-2 font-semibold whitespace-nowrap cursor-pointer hover:bg-sky-100/60 transition-colors ${
+                            item.lineId ? 'text-sky-900' : 'text-amber-700 italic'
+                          }`}
                           title="Click để sửa"
                         >
-                          {item.lineId}
+                          {item.lineId || '-- Chưa chọn Chuyền --'}
                         </div>
                       ) : (
                         <select
                           data-row-idx={idx}
                           data-col-key="lineId"
-                          value={item.lineId}
+                          value={item.lineId || ''}
                           onChange={(e) => handleUpdateItemField(item.id, 'lineId', e.target.value)}
                           onKeyDown={(e) => {
                             handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
-                          className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white cursor-pointer"
+                          className={`w-full h-8 px-2 text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white cursor-pointer ${
+                            !item.lineId ? 'text-amber-700 italic font-normal' : 'text-sky-900'
+                          }`}
                         >
+                          <option value="">-- Chọn Chuyền --</option>
                           {LINE_OPTIONS.map((line) => (
                             <option key={line} value={line}>
                               {line}
                             </option>
                           ))}
+                        </select>
+                      )}
+                    </td>
+
+                    {/* Loại Xuất (Xuất sản xuất / Xuất bù chuyền) */}
+                    <td className="p-0 border-r border-slate-200 text-center bg-purple-50/30">
+                      {isLocked ? (
+                        <div
+                          onClick={() => handleUnlockRow(item.id)}
+                          className="p-1.5 cursor-pointer hover:bg-purple-100/50 transition-colors"
+                          title="Click để sửa loại xuất"
+                        >
+                          {item.issueType === 'Xuất bù chuyền' ? (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                              Xuất bù chuyền
+                            </span>
+                          ) : item.issueType === 'Xuất sản xuất' ? (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-900 border border-sky-300">
+                              Xuất sản xuất
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] italic text-rose-600 bg-rose-50 border border-rose-300">
+                              -- Chưa chọn loại --
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <select
+                          data-row-idx={idx}
+                          data-col-key="issueType"
+                          value={item.issueType || ''}
+                          onChange={(e) => handleUpdateItemField(item.id, 'issueType', e.target.value)}
+                          onKeyDown={(e) => {
+                            handleCellArrowNavigation(e, gridContainerRef);
+                            if (e.key === 'Enter') handleSaveRow(item.id);
+                          }}
+                          className={`w-full h-8 px-1 text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:bg-white cursor-pointer ${
+                            !item.issueType
+                              ? 'text-amber-700 italic font-normal'
+                              : item.issueType === 'Xuất bù chuyền'
+                              ? 'text-purple-900'
+                              : 'text-sky-900'
+                          }`}
+                        >
+                          <option value="">-- Chọn Loại Xuất --</option>
+                          <option value="Xuất sản xuất">Xuất sản xuất</option>
+                          <option value="Xuất bù chuyền">Xuất bù chuyền</option>
                         </select>
                       )}
                     </td>
@@ -1093,7 +1177,7 @@ export const Tab5ProductionIssue: React.FC = () => {
 
               {/* DÒNG TỔNG CỘNG TOÀN BỘ BẢNG */}
               <tr className="bg-[#e9ecf0] text-slate-900 font-bold border-t-2 border-slate-400">
-                <td colSpan={7} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
+                <td colSpan={8} className="p-2 border-r border-slate-300 text-right uppercase tracking-wider text-[11px]">
                   TỔNG CỘNG ĐÃ XUẤT CHO SẢN XUẤT:
                 </td>
                 {sizes.map((s) => (

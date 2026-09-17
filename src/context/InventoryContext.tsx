@@ -219,9 +219,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [actualReceives, setActualReceives] = useState<ActualReceiveRow[]>(() =>
     loadStored('actualReceives', INITIAL_ACTUAL_RECEIVES)
   );
-  const [productionIssues, setProductionIssues] = useState<ProductionIssueRow[]>(() =>
-    loadStored('productionIssues', INITIAL_PRODUCTION_ISSUES)
-  );
+  const [productionIssues, setProductionIssues] = useState<ProductionIssueRow[]>(() => {
+    const raw = loadStored('productionIssues', INITIAL_PRODUCTION_ISSUES);
+    return (raw || []).map((i: ProductionIssueRow) => ({
+      ...i,
+      issueType: i.issueType || 'Xuất sản xuất',
+      lineId: i.lineId || 'Chuyền 1',
+    }));
+  });
   const [productionReports, setProductionReports] = useState<ProductionReportRow[]>(() => {
     const raw = loadStored('productionReports', INITIAL_PRODUCTION_REPORTS);
     return (raw || []).map((r: ProductionReportRow) => ({
@@ -1369,7 +1374,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       }
       Object.entries(issue.sizeQuantities || {}).forEach(([s, q]) => {
-        groups[poNum].issued[s] = (groups[poNum].issued[s] || 0) + (Number(q) || 0);
+        const numQ = Number(q) || 0;
+        if (issue.issueType === 'Xuất bù chuyền') {
+          groups[poNum].comp[s] = (groups[poNum].comp[s] || 0) + numQ;
+        } else {
+          groups[poNum].issued[s] = (groups[poNum].issued[s] || 0) + numQ;
+        }
       });
     });
 

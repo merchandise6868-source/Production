@@ -606,6 +606,7 @@ export const INITIAL_PRODUCTION_ISSUES: ProductionIssueRow[] = [
     issueDate: '10/09/2026',
     poNumber: 'AS-26.015',
     itemCode: 'FT-0926',
+    issueType: 'Xuất sản xuất',
     lineId: 'Chuyền 1',
     unit: 'PRS',
     sizeQuantities: {

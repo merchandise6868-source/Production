@@ -106,9 +106,9 @@ export const Tab7ProductionReport: React.FC = () => {
       reportDate: defaultDate,
       poNumber: defaultPlan?.poNumber || '',
       itemCode: defaultPlan?.itemCode || '',
-      itemType: 'Thành Phẩm',
+      itemType: '' as any,
       detailName: defaultPlan?.description || '',
-      lineId: 'Chuyền 1',
+      lineId: '',
       unit: defaultPlan?.unit || 'PRS',
       completedQuantities: compInit,
       damagedQuantities: {},
@@ -285,7 +285,17 @@ export const Tab7ProductionReport: React.FC = () => {
     if (!item) return;
 
     if (!item.poNumber.trim() || !item.itemCode.trim()) {
-      alert('Vui lòng nhập đầy đủ Mã PO và Code Vật tư!', 'Thiếu thông tin', 'warning');
+      alert('Vui lòng chọn hoặc nhập đầy đủ Mã PO và Code Vật tư!', 'Thiếu thông tin', 'warning');
+      return;
+    }
+
+    if (!item.lineId) {
+      alert('Vui lòng chọn Chuyền nghiệm thu!', 'Chưa chọn Chuyền', 'warning');
+      return;
+    }
+
+    if (!item.itemType) {
+      alert('Vui lòng chọn Loại (Thành Phẩm hoặc Bán thành phẩm)!', 'Chưa chọn Loại', 'warning');
       return;
     }
 
@@ -310,7 +320,7 @@ export const Tab7ProductionReport: React.FC = () => {
       reportDate: item.reportDate.trim() || defaultDate,
       poNumber: item.poNumber.trim().toUpperCase(),
       itemCode: item.itemCode.trim().toUpperCase(),
-      itemType: item.itemType || 'Thành Phẩm',
+      itemType: item.itemType as any,
       detailName: item.detailName?.trim() || undefined,
       lineId: item.lineId,
       unit: item.unit || 'PRS',
@@ -725,22 +735,27 @@ export const Tab7ProductionReport: React.FC = () => {
                           className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition ${
                             item.itemType === 'Bán thành phẩm'
                               ? 'bg-purple-100 text-purple-800 border border-purple-300 hover:bg-purple-200'
-                              : 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                              : item.itemType === 'Thành Phẩm'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-300 italic'
                           }`}
                           title="Click để sửa"
                         >
-                          {item.itemType || 'Thành Phẩm'}
+                          {item.itemType || '-- Chưa chọn loại --'}
                         </span>
                       ) : (
                         <select
-                          value={item.itemType || 'Thành Phẩm'}
+                          value={item.itemType || ''}
                           onChange={(e) => handleUpdateItemField(item.id, 'itemType', e.target.value)}
                           onKeyDown={(e) => {
                             handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
-                          className="w-full h-8 px-1 text-xs font-bold border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white cursor-pointer text-slate-800"
+                          className={`w-full h-8 px-1 text-xs font-bold border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white cursor-pointer ${
+                            !item.itemType ? 'text-amber-700 italic font-normal' : 'text-slate-800'
+                          }`}
                         >
+                          <option value="">-- Chọn Loại --</option>
                           <option value="Thành Phẩm">Thành Phẩm</option>
                           <option value="Bán thành phẩm">Bán thành phẩm</option>
                         </select>
@@ -789,21 +804,26 @@ export const Tab7ProductionReport: React.FC = () => {
                       {isLocked ? (
                         <div
                           onClick={() => handleUnlockRow(item.id)}
-                          className="p-2 font-bold text-sky-900 whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors"
+                          className={`p-2 font-bold whitespace-nowrap cursor-pointer hover:bg-emerald-50/60 transition-colors ${
+                            item.lineId ? 'text-sky-900' : 'text-amber-700 italic font-normal'
+                          }`}
                           title="Click để sửa"
                         >
-                          {item.lineId}
+                          {item.lineId || '-- Chưa chọn Chuyền --'}
                         </div>
                       ) : (
                         <select
-                          value={item.lineId}
+                          value={item.lineId || ''}
                           onChange={(e) => handleUpdateItemField(item.id, 'lineId', e.target.value)}
                           onKeyDown={(e) => {
                             handleCellArrowNavigation(e, gridContainerRef);
                             if (e.key === 'Enter') handleSaveRow(item.id);
                           }}
-                          className="w-full h-8 px-2 text-xs font-bold text-sky-900 bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                          className={`w-full h-8 px-2 text-xs font-bold bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 cursor-pointer ${
+                            !item.lineId ? 'text-amber-700 italic font-normal' : 'text-sky-900'
+                          }`}
                         >
+                          <option value="">-- Chọn Chuyền --</option>
                           {LINE_OPTIONS.map((line) => (
                             <option key={line} value={line}>
                               {line}
