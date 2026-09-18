@@ -4,7 +4,6 @@ import {
   Building2,
   Calendar,
   Layers,
-  RotateCcw,
   Cloud,
   LogOut,
   X,
@@ -38,22 +37,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setEndDate,
     currentCustomerPOs,
     currentCustomerReceipts,
-    resetAllData,
     currentUser,
     logout,
   } = useInventory();
 
   const [showBackupModal, setShowBackupModal] = useState(false);
-
-  const handleReset = () => {
-    confirm(
-      'Bạn có chắc chắn muốn làm sạch toàn bộ dữ liệu giao dịch trong kho để nhập/import dữ liệu thực tế? Phiên đăng nhập trên điện thoại và máy tính của bạn vẫn được giữ nguyên an toàn 100%.',
-      () => {
-        resetAllData();
-        toast('Đã xoá sạch dữ liệu kho thành công! Hệ thống sẵn sàng cho dữ liệu thực tế.');
-      }
-    );
-  };
 
   const renderSidebarContent = (isMobileView: boolean = false) => (
     <div className="flex flex-col h-full">
@@ -212,15 +200,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <Cloud className="w-4 h-4" />
           <span>Sao Lưu Google Sheets</span>
-        </button>
-
-        <button
-          onClick={handleReset}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors cursor-pointer"
-          title="Xoá toàn bộ dữ liệu giao dịch kho để nhập dữ liệu thực tế (vẫn giữ phiên đăng nhập)"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Xoá Sạch Dữ Liệu Kho</span>
         </button>
 
         {/* Thông tin tài khoản & Nút Đăng Xuất */}
