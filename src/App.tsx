@@ -1,6 +1,8 @@
-import React, { useState, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { InventoryProvider } from './context/InventoryContext';
 import { Sidebar } from './components/Sidebar';
+import { MobileHeader } from './components/MobileHeader';
+import { PwaInstallModal } from './components/common/PwaInstallModal';
 import { HorizontalTabs } from './components/HorizontalTabs';
 import { CustomerTab } from './components/tabs/CustomerTab';
 import { Tab1PlanOrder } from './components/tabs/Tab1PlanOrder';
@@ -17,6 +19,7 @@ import { GeneralInventoryTab } from './components/tabs/general/GeneralInventoryT
 import { MessageBoxProvider } from './components/common/MessageBox';
 import { LoginPage } from './components/auth/LoginPage';
 import { useInventory } from './context/InventoryContext';
+import { registerServiceWorker } from './registerServiceWorker';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -60,7 +63,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             </p>
             <button
               onClick={this.handleReset}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-lg shadow transition"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-lg shadow transition cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
               <span>Khôi Phục & Tải Lại Trang</span>
@@ -76,6 +79,13 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 export const AppContent: React.FC = () => {
   const { isAuthenticated, login, selectedCustomerId } = useInventory();
   const [activeTab, setActiveTab] = useState<number>(1); // Default to Tab 1: Số Trên Phiếu / Phiếu Nhập Kho
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showPwaModal, setShowPwaModal] = useState(false);
+
+  // Khởi chạy Service Worker khi tải trang
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
 
   // Nếu chưa đăng nhập hoặc chưa có phiên thiết bị hợp lệ -> Hiển thị trang Login
   if (!isAuthenticated) {
@@ -87,15 +97,25 @@ export const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex bg-slate-100 text-slate-900 overflow-hidden">
       {/* Cột Dọc Bên Trái: Header hệ thống, Khách Hàng, Dải Size, Kỳ Báo Cáo */}
-      <Sidebar />
+      <Sidebar
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+        onOpenInstallModal={() => setShowPwaModal(true)}
+      />
 
-      {/* Vùng Bên Phải: Phía trên là Các Tab Ngang, phía dưới là Nội Dung Chi Tiết */}
+      {/* Vùng Bên Phải: Phía trên là Mobile Header (trên điện thoại) + Các Tab Ngang, phía dưới là Nội Dung Chi Tiết */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+        {/* Header di động cho màn hình nhỏ (<1024px) */}
+        <MobileHeader
+          onOpenMenu={() => setMobileSidebarOpen(true)}
+          onOpenInstallModal={() => setShowPwaModal(true)}
+        />
+
         {/* Thanh Tab Ngang Ở Trên Cùng Vùng Bên Phải */}
         <HorizontalTabs activeTab={activeTab} setActiveTab={setActiveTab} />
 
         {/* Nội Dung Phân Hệ Đang Chọn */}
-        <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto pb-16 sm:pb-6">
           {/* NẾU LÀ KHO CHUNG (NỘI BỘ D&D): CHỈ RENDER 3 TAB CHÍNH (HÌNH 1, 2, 3) */}
           {isGeneralWarehouse ? (
             <>
@@ -131,6 +151,12 @@ export const AppContent: React.FC = () => {
           </div>
         </footer>
       </div>
+
+      {/* Modal Cài Đặt PWA / Thêm Màn Hình Chính / Ghim Taskbar */}
+      <PwaInstallModal
+        isOpen={showPwaModal}
+        onClose={() => setShowPwaModal(false)}
+      />
     </div>
   );
 };

@@ -7,11 +7,24 @@ import {
   RotateCcw,
   Cloud,
   LogOut,
+  X,
+  Download,
+  Smartphone,
 } from 'lucide-react';
 import { useMessageBox } from './common/MessageBox';
 import { GoogleSheetsBackupModal } from './common/GoogleSheetsBackupModal';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+  onOpenInstallModal?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  mobileOpen = false,
+  onCloseMobile,
+  onOpenInstallModal,
+}) => {
   const { confirm, toast } = useMessageBox();
   const {
     customers,
@@ -42,23 +55,34 @@ export const Sidebar: React.FC = () => {
     );
   };
 
-  return (
-    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0 shrink-0 select-none shadow-2xs">
+  const renderSidebarContent = (isMobileView: boolean = false) => (
+    <div className="flex flex-col h-full">
       {/* Brand & Logo */}
-      <div className="p-4 border-b border-slate-100">
+      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-xs font-bold text-base shrink-0">
             D&D
           </div>
           <div className="min-w-0">
             <h1 className="text-sm font-bold text-slate-900 truncate leading-tight">
-              D&D Long An
+              D&amp;D Long An
             </h1>
             <p className="text-[11px] text-slate-500 truncate">
               Quản lý kho &amp; sản xuất
             </p>
           </div>
         </div>
+
+        {isMobileView && onCloseMobile && (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+            title="Đóng menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       {/* Body Content */}
@@ -71,7 +95,10 @@ export const Sidebar: React.FC = () => {
           </label>
           <select
             value={selectedCustomerId}
-            onChange={(e) => setSelectedCustomerId(e.target.value)}
+            onChange={(e) => {
+              setSelectedCustomerId(e.target.value);
+              if (isMobileView && onCloseMobile) onCloseMobile();
+            }}
             className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold rounded-lg p-2 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
           >
             {customers.map((c) => (
@@ -158,9 +185,28 @@ export const Sidebar: React.FC = () => {
 
       {/* Footer in Sidebar */}
       <div className="p-3 border-t border-slate-100 bg-slate-50/50 space-y-2">
+        {/* Nút Cài đặt App / Ghim Taskbar */}
+        {onOpenInstallModal && (
+          <button
+            type="button"
+            onClick={() => {
+              onOpenInstallModal();
+              if (isMobileView && onCloseMobile) onCloseMobile();
+            }}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold text-sky-900 bg-sky-100 hover:bg-sky-200 border border-sky-300 rounded-lg transition shadow-2xs cursor-pointer"
+            title="Cài đặt App lên điện thoại hoặc Ghim thanh Taskbar laptop"
+          >
+            <Smartphone className="w-4 h-4 text-sky-700" />
+            <span>Cài App / Ghim Taskbar</span>
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={() => setShowBackupModal(true)}
+          onClick={() => {
+            setShowBackupModal(true);
+            if (isMobileView && onCloseMobile) onCloseMobile();
+          }}
           className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 rounded-lg transition shadow-xs cursor-pointer"
           title="Mở Trung tâm Sao lưu dữ liệu lên Google Sheets"
         >
@@ -203,15 +249,40 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <div className="text-[10px] text-center text-slate-400">
-          D&D Long An &copy; 2026
+          D&amp;D Long An &copy; 2026
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Fixed Sidebar */}
+      <aside className="hidden lg:flex w-64 bg-white border-r border-slate-200 flex-col h-screen sticky top-0 shrink-0 select-none shadow-2xs">
+        {renderSidebarContent(false)}
+      </aside>
+
+      {/* Mobile Drawer Overlay & Sidebar */}
+      {mobileOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity animate-in fade-in"
+            onClick={onCloseMobile}
+          />
+
+          {/* Drawer Sheet */}
+          <div className="relative w-72 max-w-[85vw] bg-white h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-left duration-200">
+            {renderSidebarContent(true)}
+          </div>
+        </div>
+      )}
 
       {/* Modal Sao Lưu Google Sheets */}
       <GoogleSheetsBackupModal
         isOpen={showBackupModal}
         onClose={() => setShowBackupModal(false)}
       />
-    </aside>
+    </>
   );
 };

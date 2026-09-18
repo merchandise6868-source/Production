@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="favGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#4338ca" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#favGrad)" />
+  <g transform="translate(32, 28) scale(0.38)">
+    <polygon points="0,-40 50,-12 0,16 -50,-12" fill="#f8fafc" />
+    <polygon points="-50,-12 0,16 0,65 -50,38" fill="#cbd5e1" />
+    <polygon points="0,16 50,-12 50,38 0,65" fill="#94a3b8" />
+    <circle cx="40" cy="-20" r="14" fill="#10b981" />
+  </g>
+  <text x="32" y="56" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="900" fill="#ffffff">
+    D&amp;D
+  </text>
+</svg>
