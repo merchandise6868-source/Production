@@ -13,11 +13,13 @@ import {
   FolderSync,
   HelpCircle,
   Building2,
+  Warehouse,
   FileSpreadsheet,
   ChevronDown,
   ChevronUp,
   Save,
   Clock,
+  Play,
 } from 'lucide-react';
 import {
   buildCompanySheetsPayload,
@@ -54,6 +56,8 @@ export const GoogleSheetsBackupModal: React.FC<Props> = ({ isOpen, onClose }) =>
     isAutoBackupEnabled,
     setIsAutoBackupEnabled,
     lastAutoBackupTime,
+    isAutoBackupRunning,
+    triggerAutoBackupAll,
     generalInboundSlips,
     generalOutboundSlips,
   } = useInventory();
@@ -555,15 +559,15 @@ function doPost(e) {
           </div>
 
           {/* LỊCH TỰ ĐỘNG SAO LƯU 11:00 & 16:30 */}
-          <div className="p-3.5 rounded-xl border border-teal-200 bg-teal-50/60 flex flex-wrap items-center justify-between gap-3">
+          <div className="p-3.5 rounded-xl border border-teal-200 bg-teal-50/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                <Clock className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Clock className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-800 text-xs">
-                    TỰ ĐỘNG SAO LƯU HÀNG NGÀY (11:00 TRƯA &amp; 16:30 CHIỀU)
+                    TỰ ĐỘNG SAO LƯU ĐỊNH KỲ (11:00 TRƯA &amp; 16:30 CHIỀU)
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                     isAutoBackupEnabled
@@ -572,9 +576,15 @@ function doPost(e) {
                   }`}>
                     {isAutoBackupEnabled ? '🟢 Đang Bật' : '⚪ Đang Tắt'}
                   </span>
+                  {isAutoBackupRunning && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 animate-pulse flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>Đang sao lưu ngầm...</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Hệ thống tự động quét và lưu toàn bộ 10 sheets của 3 công ty lên Google Drive vào đúng 11:00 và 16:30 mà không cần bấm tay.
+                  Hệ thống tự động quét và lưu toàn bộ dữ liệu của tất cả công ty &amp; Kho Chung lên Google Drive vào đúng 11:00 và 16:30 mỗi ngày.
                   {lastAutoBackupTime && (
                     <span className="font-semibold text-teal-800 ml-1">
                       (Lần tự động sao lưu gần nhất: {lastAutoBackupTime})
@@ -584,55 +594,170 @@ function doPost(e) {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isAutoBackupEnabled}
-                onChange={(e) => setIsAutoBackupEnabled(e.target.checked)}
-                className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 cursor-pointer"
-              />
-              <span className="text-xs font-bold text-teal-900">
-                Bật tự động sao lưu
-              </span>
-            </label>
+            <div className="flex items-center gap-2.5 self-end sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  toast('🔄 Đang kích hoạt chu trình tự động sao lưu toàn bộ...');
+                  const ok = await triggerAutoBackupAll('Chạy thử ngay');
+                  if (ok) {
+                    toast('🎉 Đã hoàn tất tự động sao lưu toàn bộ các công ty & Kho Chung!');
+                  }
+                }}
+                disabled={isAutoBackupRunning || isBackingUp}
+                className="px-2.5 py-1 text-[11px] font-bold bg-white hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-lg transition shadow-2xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                title="Chạy thử ngay tiến trình tự động sao lưu ngầm"
+              >
+                <Play className="w-3 h-3 text-teal-600 fill-teal-600" />
+                <span>Chạy Thử Ngay</span>
+              </button>
+
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isAutoBackupEnabled}
+                  onChange={(e) => setIsAutoBackupEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-teal-900">
+                  Bật tự động
+                </span>
+              </label>
+            </div>
           </div>
 
-          {/* SECTION 2: THAO TÁC SAO LƯU */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Sao lưu công ty hiện tại */}
-            <div className="p-4 rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white flex flex-col justify-between space-y-3">
+          {/* SECTION 2: THAO TÁC SAO LƯU (3 PHÂN KHỐI) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* KHỐI 1: SAO LƯU KHO CHUNG (NỘI BỘ D&D) - 3 SHEETS */}
+            {(() => {
+              const chungCust = customers.find((c) => c.id === 'cust-chung') || {
+                id: 'cust-chung',
+                code: 'CHUNG',
+                name: 'Kho Chung (Nội Bộ D&D)',
+                note: 'Quản lý kho nội bộ',
+                sizeRuns: [],
+                activeSizeRunId: '',
+              };
+              const inCount = generalInboundSlips.length;
+              const outCount = generalOutboundSlips.length;
+
+              return (
+                <div className="p-4 rounded-xl border-2 border-indigo-300 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/50 flex flex-col justify-between space-y-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-indigo-700 tracking-wider">
+                        Phân Hệ Nội Bộ (3 Sheets)
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        Theo ĐVT
+                      </span>
+                    </div>
+
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 mt-1">
+                      <Warehouse className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="truncate">Kho Chung (Nội Bộ D&amp;D)</span>
+                    </h3>
+
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Sao lưu 3 Sheets: <em>Phiếu Nhập</em> ({inCount}), <em>Phiếu Xuất</em> ({outCount}), <em>Tồn Kho Tức Thời</em> (Công cụ, Vật tư, Thiết bị).
+                    </p>
+
+                    {chungCust.googleSheetUrl && (
+                      <div className="mt-2">
+                        <a
+                          href={chungCust.googleSheetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-900 hover:underline"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                          <span className="truncate">[KHO] - Báo Cáo - Kho Chung</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => backupSingleCompany(chungCust as any)}
+                    disabled={isBackingUp}
+                    className="w-full h-10 px-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 disabled:bg-slate-300 text-white font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm text-xs"
+                  >
+                    <Warehouse className="w-4 h-4" />
+                    <span>{isBackingUp ? 'Đang sao lưu...' : '⚡ Sao Lưu Kho Chung (3 Sheets)'}</span>
+                  </button>
+                </div>
+              );
+            })()}
+
+            {/* KHỐI 2: SAO LƯU CÔNG TY GIA CÔNG ĐANG CHỌN (10 SHEETS) */}
+            <div className="p-4 rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white flex flex-col justify-between space-y-3 shadow-xs">
               <div>
-                <span className="text-[10px] font-bold uppercase text-teal-700 tracking-wider">Chế độ đơn lẻ</span>
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
-                  <Building2 className="w-4 h-4 text-teal-600" />
-                  {currentCustomer?.name || 'Chưa chọn công ty'}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-teal-700 tracking-wider">
+                    Gia Công Đơn Lẻ (10 Sheets)
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-100 text-teal-800 border border-teal-200">
+                    Theo Dải Size
+                  </span>
+                </div>
+
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 mt-1">
+                  <Building2 className="w-4 h-4 text-teal-600 shrink-0" />
+                  <span className="truncate">{currentCustomer?.id === 'cust-chung' ? 'Chọn Đối Tác Gia Công' : (currentCustomer?.name || 'Công ty')}</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Chỉ sao lưu toàn bộ 10 tab dữ liệu của công ty đang xem vào đúng file Google Sheet của công ty này.
+
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Sao lưu toàn bộ 10 tab theo dải size &amp; đơn hàng PO (Kế hoạch, Thực nhận, Chênh lệch, Xuất SX, Tồn kho, Nghiệm thu, Thành phẩm...).
                 </p>
+
+                {currentCustomer?.googleSheetUrl && (
+                  <div className="mt-2">
+                    <a
+                      href={currentCustomer.googleSheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-teal-600" />
+                      <span className="truncate">[KHO] - {currentCustomer.name}</span>
+                      <ExternalLink className="w-3 h-3 text-slate-400" />
+                    </a>
+                  </div>
+                )}
               </div>
 
               <button
                 type="button"
                 onClick={handleBackupCurrentCompany}
                 disabled={isBackingUp || !currentCustomer}
-                className="w-full h-10 px-4 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-bold rounded-lg transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                className="w-full h-10 px-3 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm text-xs"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>{isBackingUp ? 'Đang thực hiện sao lưu...' : `⚡ Sao Lưu Cho ${currentCustomer?.name || 'Công ty'}`}</span>
+                <span>{isBackingUp ? 'Đang thực hiện...' : `⚡ Sao Lưu ${currentCustomer?.name || 'Công ty'}`}</span>
               </button>
             </div>
 
-            {/* Sao lưu TẤT CẢ CÔNG TY (1-Click) */}
-            <div className="p-4 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white flex flex-col justify-between space-y-3">
+            {/* KHỐI 3: SAO LƯU TẤT CẢ CÔNG TY & KHO CHUNG (1-CLICK) */}
+            <div className="p-4 rounded-xl border border-slate-300 bg-gradient-to-br from-slate-900 to-indigo-950 text-white flex flex-col justify-between space-y-3 shadow-md">
               <div>
-                <span className="text-[10px] font-bold uppercase text-indigo-700 tracking-wider">Chế độ toàn diện</span>
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
-                  <Cloud className="w-4 h-4 text-indigo-600" />
-                  Sao Lưu Toàn Bộ ({customers.length} Công Ty)
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider">
+                    Toàn Diện (1-Click)
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-white/20 text-white border border-white/30">
+                    {customers.length} Đơn Vị
+                  </span>
+                </div>
+
+                <h3 className="text-sm font-bold text-white flex items-center gap-1.5 mt-1">
+                  <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Sao Lưu Tất Cả ({customers.length} File)</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Tự động duyệt qua từng công ty, tạo mới hoặc cập nhật 10 sheets vào từng file Google Sheet độc lập trên Google Drive.
+
+                <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                  Tự động đồng bộ toàn bộ các công ty gia công + Kho Chung thành từng file Google Sheet riêng biệt trên Google Drive.
                 </p>
               </div>
 
@@ -640,10 +765,10 @@ function doPost(e) {
                 type="button"
                 onClick={handleBackupAllCompanies}
                 disabled={isBackingUp || customers.length === 0}
-                className="w-full h-10 px-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 disabled:bg-slate-300 text-white font-bold rounded-lg transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                className="w-full h-10 px-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:bg-slate-700 text-white font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm text-xs"
               >
                 <FolderSync className="w-4 h-4" />
-                <span>{isBackingUp ? 'Đang tiến hành sao lưu hàng loạt...' : `🚀 Sao Lưu TẤT CẢ ${customers.length} Công Ty (1-Click)`}</span>
+                <span>{isBackingUp ? 'Đang sao lưu hàng loạt...' : `🚀 Sao Lưu TẤT CẢ (${customers.length} File)`}</span>
               </button>
             </div>
           </div>
@@ -669,12 +794,12 @@ function doPost(e) {
             </div>
           )}
 
-          {/* SECTION 3: DANH SÁCH FILE GOOGLE SHEET TỪNG CÔNG TY */}
+          {/* SECTION 3: DANH SÁCH FILE GOOGLE SHEET TỪNG CÔNG TY & KHO CHUNG */}
           <div className="space-y-2">
             <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center justify-between">
-              <span>DANH SÁCH FILE GOOGLE SHEET TƯƠNG ỨNG CỦA CÁC CÔNG TY:</span>
+              <span>DANH SÁCH FILE GOOGLE SHEET TƯƠNG ỨNG:</span>
               <span className="text-slate-500 text-[11px] normal-case font-normal">
-                Tổng cộng: <strong>{customers.length}</strong> công ty đối tác
+                Tổng cộng: <strong>{customers.length}</strong> đơn vị (Công ty gia công &amp; Kho Chung)
               </span>
             </h4>
 
@@ -683,79 +808,104 @@ function doPost(e) {
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold text-[11px] border-b border-slate-200">
                     <th className="p-2.5 w-12 text-center">STT</th>
-                    <th className="p-2.5">Tên Công Ty / Khách Hàng</th>
+                    <th className="p-2.5">Tên Đơn Vị / Công Ty</th>
+                    <th className="p-2.5">Phân Hệ</th>
                     <th className="p-2.5">File Google Sheet Riêng</th>
                     <th className="p-2.5">Lần Sao Lưu Cuối</th>
                     <th className="p-2.5 w-32 text-center">Thao Tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-xs">
-                  {customers.map((cust, idx) => (
-                    <tr key={cust.id} className="hover:bg-slate-50/80 transition">
-                      <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="p-2.5 font-bold text-slate-800">
-                        <div className="flex items-center gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{cust.name}</span>
-                          {cust.id === selectedCustomerId && (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-teal-100 text-teal-800">
-                              Đang chọn
+                  {customers.map((cust, idx) => {
+                    const isChung = cust.id === 'cust-chung';
+                    return (
+                      <tr key={cust.id} className={`hover:bg-slate-50/80 transition ${isChung ? 'bg-indigo-50/40' : ''}`}>
+                        <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="p-2.5 font-bold text-slate-800">
+                          <div className="flex items-center gap-1.5">
+                            {isChung ? (
+                              <Warehouse className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            ) : (
+                              <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            )}
+                            <span className={isChung ? 'text-indigo-900 font-bold' : ''}>{cust.name}</span>
+                            {cust.id === selectedCustomerId && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-teal-100 text-teal-800">
+                                Đang chọn
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2.5">
+                          {isChung ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                              Kho Nội Bộ (3 Sheets)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                              Gia Công (10 Sheets)
                             </span>
                           )}
-                        </div>
-                      </td>
-                      <td className="p-2.5">
-                        {cust.googleSheetUrl ? (
-                          <a
-                            href={cust.googleSheetUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-emerald-700 font-bold hover:underline"
-                          >
-                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>[KHO] - Báo Cáo - {cust.name}</span>
-                            <ExternalLink className="w-3 h-3 text-slate-400" />
-                          </a>
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">
-                            Chưa khởi tạo (Tự động sinh khi sao lưu)
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-2.5 text-slate-600 text-[11px]">
-                        {cust.lastBackupAt ? (
-                          <span className="text-emerald-700 font-medium">✓ {cust.lastBackupAt}</span>
-                        ) : (
-                          <span className="text-slate-400">Chưa có lịch sử</span>
-                        )}
-                      </td>
-                      <td className="p-2 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => backupSingleCompany(cust)}
-                            disabled={isBackingUp}
-                            className="px-2 py-1 text-[11px] font-semibold bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded cursor-pointer transition disabled:opacity-50"
-                            title="Sao lưu công ty này ngay"
-                          >
-                            Sao lưu
-                          </button>
-                          {cust.googleSheetUrl && (
+                        </td>
+                        <td className="p-2.5">
+                          {cust.googleSheetUrl ? (
                             <a
                               href={cust.googleSheetUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="px-2 py-1 text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded transition inline-flex items-center gap-1"
-                              title="Mở file Google Sheet của công ty này"
+                              className={`inline-flex items-center gap-1 font-bold hover:underline ${
+                                isChung ? 'text-indigo-700' : 'text-emerald-700'
+                              }`}
                             >
-                              <span>Mở Sheet</span>
-                              <ExternalLink className="w-3 h-3" />
+                              <FileSpreadsheet className={`w-3.5 h-3.5 ${isChung ? 'text-indigo-600' : 'text-emerald-600'}`} />
+                              <span>[KHO] - Báo Cáo - {cust.name}</span>
+                              <ExternalLink className="w-3 h-3 text-slate-400" />
                             </a>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">
+                              Chưa khởi tạo (Tự động sinh khi sao lưu)
+                            </span>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="p-2.5 text-slate-600 text-[11px]">
+                          {cust.lastBackupAt ? (
+                            <span className="text-emerald-700 font-medium">✓ {cust.lastBackupAt}</span>
+                          ) : (
+                            <span className="text-slate-400">Chưa có lịch sử</span>
+                          )}
+                        </td>
+                        <td className="p-2 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => backupSingleCompany(cust)}
+                              disabled={isBackingUp}
+                              className={`px-2 py-1 text-[11px] font-semibold border rounded cursor-pointer transition disabled:opacity-50 ${
+                                isChung
+                                  ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                                  : 'bg-teal-50 hover:bg-teal-100 text-teal-700 border-teal-200'
+                              }`}
+                              title={`Sao lưu ${cust.name} ngay`}
+                            >
+                              Sao lưu
+                            </button>
+                            {cust.googleSheetUrl && (
+                              <a
+                                href={cust.googleSheetUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded transition inline-flex items-center gap-1"
+                                title="Mở file Google Sheet này"
+                              >
+                                <span>Mở Sheet</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
