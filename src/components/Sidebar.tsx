@@ -47,10 +47,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleReset = () => {
     confirm(
-      'Bạn có chắc chắn muốn khôi phục toàn bộ dữ liệu mẫu ban đầu? Các dữ liệu tự nhập sẽ bị xóa.',
+      'Bạn có chắc chắn muốn làm sạch toàn bộ dữ liệu giao dịch trong kho để nhập/import dữ liệu thực tế? Phiên đăng nhập trên điện thoại và máy tính của bạn vẫn được giữ nguyên an toàn 100%.',
       () => {
         resetAllData();
-        toast('Đã khôi phục dữ liệu mẫu ban đầu thành công!');
+        toast('Đã xoá sạch dữ liệu kho thành công! Hệ thống sẵn sàng cho dữ liệu thực tế.');
       }
     );
   };
@@ -216,11 +216,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <button
           onClick={handleReset}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors"
-          title="Khôi phục lại dữ liệu mẫu ban đầu"
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+          title="Xoá toàn bộ dữ liệu giao dịch kho để nhập dữ liệu thực tế (vẫn giữ phiên đăng nhập)"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          <span>Khôi Phục Mẫu</span>
+          <span>Xoá Sạch Dữ Liệu Kho</span>
         </button>
 
         {/* Thông tin tài khoản & Nút Đăng Xuất */}

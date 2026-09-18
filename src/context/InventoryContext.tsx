@@ -179,6 +179,34 @@ interface InventoryContextType {
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
+// Tự động dọn dẹp sạch toàn bộ dữ liệu mẫu cũ trên trình duyệt để sẵn sàng nhập liệu thực tế
+const CLEAN_STORAGE_KEY = 'DD_INVENTORY_CLEANED_FOR_REAL_DATA_V2';
+if (typeof window !== 'undefined' && !localStorage.getItem(CLEAN_STORAGE_KEY)) {
+  const inventoryKeys = [
+    'dd_inventory_pos',
+    'dd_inventory_receipts',
+    'dd_inventory_deliveries',
+    'dd_inventory_compensations',
+    'dd_inventory_inventories',
+    'dd_inventory_planOrders',
+    'dd_inventory_actualReceives',
+    'dd_inventory_productionIssues',
+    'dd_inventory_productionReports',
+    'dd_inventory_compensationRequests',
+    'dd_inventory_stockCompensations',
+    'dd_inventory_compensationDateOverrides',
+    'dd_inventory_hiddenCompensationItemIds',
+    'dd_inventory_finishedGoodsDeliveries',
+    'dd_inventory_compensationReceivedQuantities',
+    'dd_inventory_compensationStatusOverrides',
+    'dd_inventory_supplementalMaterialStock',
+    'dd_inventory_general_inbound_slips',
+    'dd_inventory_general_outbound_slips',
+  ];
+  inventoryKeys.forEach((k) => localStorage.removeItem(k));
+  localStorage.setItem(CLEAN_STORAGE_KEY, 'true');
+}
+
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // LocalStorage initialization helper
   const loadStored = <T,>(key: string, defaultVal: T): T => {
@@ -696,24 +724,50 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const resetAllData = () => {
     setCustomers(INITIAL_CUSTOMERS);
     setSelectedCustomerId('cust-deawoong');
-    setPurchaseOrders(INITIAL_POS);
-    setReceipts(INITIAL_RECEIPTS);
-    setDeliveries(INITIAL_DELIVERIES);
-    setCompensations(INITIAL_COMPENSATIONS);
-    setInventories(INITIAL_INVENTORIES);
-    setPlanOrders(INITIAL_PLAN_ORDERS);
-    setActualReceives(INITIAL_ACTUAL_RECEIVES);
-    setProductionIssues(INITIAL_PRODUCTION_ISSUES);
-    setProductionReports(INITIAL_PRODUCTION_REPORTS);
+    setPurchaseOrders([]);
+    setReceipts([]);
+    setDeliveries([]);
+    setCompensations([]);
+    setInventories([]);
+    setPlanOrders([]);
+    setActualReceives([]);
+    setProductionIssues([]);
+    setProductionReports([]);
     setCustomCompensationRequests([]);
     setStockCompensations({});
+    setCompensationDateOverrides({});
+    setHiddenCompensationItemIds([]);
     setFinishedGoodsDeliveries([]);
     setCompensationReceivedQuantities({});
     setCompensationStatusOverrides({});
     setSupplementalMaterialStock({});
-    setGeneralInboundSlips(INITIAL_GENERAL_INBOUND_SLIPS);
-    setGeneralOutboundSlips(INITIAL_GENERAL_OUTBOUND_SLIPS);
-    localStorage.clear();
+    setGeneralInboundSlips([]);
+    setGeneralOutboundSlips([]);
+
+    // Xoá các khóa dữ liệu kho trong LocalStorage, TUYỆT ĐỐI KHÔNG xóa phiên đăng nhập DD_INVENTORY_AUTH_SESSION
+    const inventoryKeys = [
+      'dd_inventory_pos',
+      'dd_inventory_receipts',
+      'dd_inventory_deliveries',
+      'dd_inventory_compensations',
+      'dd_inventory_inventories',
+      'dd_inventory_planOrders',
+      'dd_inventory_actualReceives',
+      'dd_inventory_productionIssues',
+      'dd_inventory_productionReports',
+      'dd_inventory_compensationRequests',
+      'dd_inventory_stockCompensations',
+      'dd_inventory_compensationDateOverrides',
+      'dd_inventory_hiddenCompensationItemIds',
+      'dd_inventory_finishedGoodsDeliveries',
+      'dd_inventory_compensationReceivedQuantities',
+      'dd_inventory_compensationStatusOverrides',
+      'dd_inventory_supplementalMaterialStock',
+      'dd_inventory_general_inbound_slips',
+      'dd_inventory_general_outbound_slips',
+    ];
+    inventoryKeys.forEach((k) => localStorage.removeItem(k));
+
     syncToApi('RESET_ALL');
   };
 
